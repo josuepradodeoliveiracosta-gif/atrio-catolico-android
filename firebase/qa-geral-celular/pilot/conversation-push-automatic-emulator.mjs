@@ -1,6 +1,6 @@
 // Laboratory only. No deployed trigger, no HTTP route, no FCM, no credentials.
 // The real adapter and its IAM identity must be reviewed separately.
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {planAutomaticNotice,AUTO_CHAT} from './conversation-push-automatic-plan.mjs';
 import {conversationPushIdentity as identity} from './conversation-push-policy.mjs';
 
@@ -19,22 +19,18 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
       auth?.app?.options?.projectId!==DEMO || typeof serverTimestamp!=='function')
     throw Error('automatic_push_emulator_only');
   const doc=path=>db.doc(path);
-  return Object.freeze({async handle(event){
-    if (enabled!==true) return {status:'ignored',reason:'automation_disabled'};
-    if (event?.type!=='created'||event.projectId!==identity.projectId||
-        event.databaseId!==identity.databaseId||event.chatId!==AUTO_CHAT||!allowedId(event.messageId))
-      return {status:'ignored',reason:'invalid_event'};
+  async function currentAccounts(){
     // Auth is external to Firestore's transaction. The future Worker must
     // recheck current accounts after commit and before any send.
-    let accounts;
     try {
-      accounts=Object.fromEntries(await Promise.all(uids.map(async uid=>{
+      return Object.fromEntries(await Promise.all(uids.map(async uid=>{
         const a=await auth.getUser(uid);
         return [uid,{uid:a.uid,email:a.email,emailVerified:a.emailVerified,disabled:a.disabled}];
       })));
-    } catch { return {status:'ignored',reason:'auth_unavailable'}; }
+    } catch { return null; }
+  }
+  async function readState(tx,event,accounts){
     const chat=event.chatId,messageId=event.messageId,eventKey=key(chat,messageId);
-    return db.runTransaction(async tx=>{
       const [config,room,message,writeBoundary,pagination,...others]=await Promise.all([
         tx.get(doc('app_config/conversations')),tx.get(doc('chats/'+chat)),
         tx.get(doc('chats/'+chat+'/messages/'+messageId)),
@@ -47,7 +43,7 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
       ]);
       const rawMessage=row(message);
       if (!rawMessage||!uids.includes(rawMessage.uid))
-        return {status:'ignored',reason:'invalid_or_expired_message'};
+        return null;
       const sender=rawMessage.uid,recipient=uids.find(x=>x!==sender);
       const user='users/'+recipient;
       const receiptRef=doc(user+'/chatPushPublicationReceipts/'+eventKey);
@@ -80,6 +76,19 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
           d.data().token.length>0&&Number.isFinite(ms(d.data().updatedAt))),
         receipt:row(receipt),pending:p&&{...p,expiresAt:ms(p.expiresAt)}
       };
+    return {snapshot,now,chat,messageId,eventKey,sender,recipient,pendingRef,receiptRef,outboxRef,outbox};
+  }
+  return Object.freeze({async handle(event){
+    if (enabled!==true) return {status:'ignored',reason:'automation_disabled'};
+    if (event?.type!=='created'||event.projectId!==identity.projectId||
+        event.databaseId!==identity.databaseId||event.chatId!==AUTO_CHAT||!allowedId(event.messageId))
+      return {status:'ignored',reason:'invalid_event'};
+    const accounts=await currentAccounts();
+    if(!accounts)return {status:'ignored',reason:'auth_unavailable'};
+    return db.runTransaction(async tx=>{
+      const state=await readState(tx,event,accounts);
+      if(!state)return {status:'ignored',reason:'invalid_or_expired_message'};
+      const {snapshot,now,chat,messageId,eventKey,sender,recipient,pendingRef,receiptRef,outboxRef,outbox}=state;
       const decision=planAutomaticNotice({enabled:true,event,snapshot,now});
       if (decision.status!=='candidate') return decision;
       if(outbox.exists) return {status:'ignored',reason:'outbox_exists_or_unknown'};
@@ -97,6 +106,79 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
         messageId,senderUid:sender,recipientUid:recipient,senderGeneration:record.senderGeneration,
         recipientGeneration:record.recipientGeneration,expiresAt:n.expiresAt,createdAt:serverTimestamp()});
       return {status:'published_lab',eventKey};
+    });
+
+  },
+  // One-shot claim: no automatic reclaim after a crash or uncertain send.
+  // A real Worker must still revalidate and reserve in D1 before transport.
+  async claim(eventKey){
+    if(enabled!==true)return {status:'ignored',reason:'automation_disabled'};
+    if(typeof eventKey!=='string'||!/^[a-f0-9]{64}$/.test(eventKey))
+      return {status:'ignored',reason:'invalid_event_key'};
+    const accounts=await currentAccounts();
+    if(!accounts)return {status:'ignored',reason:'auth_unavailable'};
+    return db.runTransaction(async tx=>{
+      const ref=doc('qaPushAutomaticOutbox/'+eventKey);
+      const entry=await tx.get(ref),o=row(entry),now=ms(entry.readTime);
+      if(!o||o.state!=='pending_transport')return {status:'ignored',reason:'not_pending'};
+      if(o.roundId!==identity.roundId||o.conversationId!==AUTO_CHAT||!allowedId(o.messageId)||
+          key(o.conversationId,o.messageId)!==eventKey||!Number.isSafeInteger(now))
+        return {status:'ignored',reason:'invalid_outbox'};
+      const event={type:'created',projectId:identity.projectId,databaseId:identity.databaseId,
+        chatId:o.conversationId,messageId:o.messageId};
+      const state=await readState(tx,event,accounts);
+      if(!state)return {status:'ignored',reason:'canonical_missing'};
+      const {snapshot,sender,recipient}=state,p=snapshot.pending,r=snapshot.receipt;
+      const expiry=ms(o.expiresAt);
+      const bound=p&&r&&p.kind==='chat_message'&&p.unread===true&&
+        p.roundId===o.roundId&&r.roundId===o.roundId&&p.conversationId===o.conversationId&&
+        p.messageId===o.messageId&&p.senderUid===sender&&o.senderUid===sender&&
+        o.recipientUid===recipient&&p.senderGeneration===o.senderGeneration&&
+        p.recipientGeneration===o.recipientGeneration&&r.senderGeneration===o.senderGeneration&&
+        r.recipientGeneration===o.recipientGeneration&&r.operatorUid==='qa-auto-emulator-only'&&
+        p.expiresAt===expiry&&ms(r.expiresAt)===expiry;
+      if(!bound||!Number.isSafeInteger(expiry)||expiry-state.now<10_000)
+        return {status:'ignored',reason:'binding_or_expiry_invalid'};
+      // These two existing records were checked above; only suppress them
+      // for the pure revalidation of the original intent, never republish.
+      const check=planAutomaticNotice({enabled:true,event,now:state.now,
+        snapshot:{...snapshot,receipt:null,pending:null}});
+      if(check.status!=='candidate'||check.notice.expectedSenderGeneration!==o.senderGeneration||
+          check.notice.expectedRecipientGeneration!==o.recipientGeneration||
+          check.notice.expiresAt.getTime()<expiry)
+        return {status:'ignored',reason:'authorization_changed'};
+      const claimId=randomUUID();
+      tx.update(ref,{state:'claimed_lab',claimId,claimedAt:serverTimestamp()});
+      return {status:'claimed_lab',eventKey,claimId};
+    });
+  },
+  // Laboratory outcomes only. No external I/O and no real FCM acceptance.
+  // Unknown is terminal: do not recycle a potentially transmitted event.
+  async finish({eventKey,claimId,outcome}={}){
+    if(enabled!==true)return {status:'ignored',reason:'automation_disabled'};
+    if(typeof eventKey!=='string'||!/^[a-f0-9]{64}$/.test(eventKey)||
+        typeof claimId!=='string'||!/^[0-9a-f-]{36}$/.test(claimId)||
+        !['accepted_simulated','rejected_simulated','unknown'].includes(outcome))
+      return {status:'ignored',reason:'invalid_result'};
+    return db.runTransaction(async tx=>{
+      const ref=doc('qaPushAutomaticOutbox/'+eventKey),snap=await tx.get(ref),o=row(snap);
+      if(o?.state!=='claimed_lab'||o.claimId!==claimId)return {status:'ignored',reason:'claim_mismatch'};
+      const state=ms(o.expiresAt)>ms(snap.readTime)?outcome:'unknown';
+      tx.update(ref,{state,finishedAt:serverTimestamp()});
+      return {status:state};
+    });
+  },
+  async expireClaim(eventKey){
+    if(enabled!==true)return {status:'ignored',reason:'automation_disabled'};
+    if(typeof eventKey!=='string'||!/^[a-f0-9]{64}$/.test(eventKey))
+      return {status:'ignored',reason:'invalid_event_key'};
+    return db.runTransaction(async tx=>{
+      const ref=doc('qaPushAutomaticOutbox/'+eventKey),snap=await tx.get(ref),o=row(snap);
+      const now=ms(snap.readTime),expiry=ms(o?.expiresAt);
+      if(o?.state!=='claimed_lab'||!Number.isSafeInteger(now)||!Number.isSafeInteger(expiry)||expiry>now)
+        return {status:'ignored',reason:'not_expired_claim'};
+      tx.update(ref,{state:'unknown',finishedAt:serverTimestamp()});
+      return {status:'unknown'};
     });
   }});
 }

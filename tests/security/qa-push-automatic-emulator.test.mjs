@@ -116,4 +116,48 @@ try{
   await absent('late');
   assert.equal((await service.handle(event('newest'))).status,'published_lab');
  });
+
+ await test('one exclusive claim, result fenced by claim ID, terminal simulated acceptance',async()=>{
+  await seed('claim');const pub=await service.handle(event('claim'));
+  assert.equal(pub.status,'published_lab');
+  const results=await Promise.all([service.claim(pub.eventKey),service.claim(pub.eventKey)]);
+  const winner=results.find(r=>r.status==='claimed_lab');
+  assert.ok(winner);
+  assert.equal(results.filter(r=>r.status==='claimed_lab').length,1);
+  assert.equal((await service.finish({eventKey:pub.eventKey,claimId:'00000000-0000-4000-8000-000000000000',outcome:'accepted_simulated'})).reason,'claim_mismatch');
+  assert.equal((await service.finish({...winner,outcome:'accepted_simulated'})).status,'accepted_simulated');
+  assert.equal((await service.claim(pub.eventKey)).reason,'not_pending');
+  assert.equal((await service.finish({...winner,outcome:'unknown'})).reason,'claim_mismatch');
+ });
+ for(const [id,mutate] of [
+  ['claim-revoked',()=>d('users/'+bob+'/chatPushAdmission/current').update({status:'revoked'})],
+  ['claim-blocked',()=>d('users/'+alice+'/blockedMembers/'+bob).set({})],
+  ['claim-read',()=>room.update({unreadRequester:0})],
+  ['claim-superseded',()=>newMessage('claim-newer')],
+  ['claim-tampered',()=>pending.update({senderGeneration:gen(9)})],
+  ['claim-expired',()=>outbox('claim-expired').update({expiresAt:new Date(Date.now()-1)})],
+  ['claim-auth-disabled',()=>auth.updateUser(bob,{disabled:true})]
+ ]){
+  await test(id+' cannot claim after publication',async()=>{
+   await seed(id);const pub=await service.handle(event(id));assert.equal(pub.status,'published_lab');
+   await mutate();
+   try{
+    assert.equal((await service.claim(pub.eventKey)).status,'ignored');
+    assert.equal((await outbox(id).get()).data().state,'pending_transport');
+   }finally{if(id==='claim-auth-disabled')await auth.updateUser(bob,{disabled:false})}
+  });
+ }
+ await test('unknown outcome remains terminal; expired claim cannot be reclaimed',async()=>{
+  await seed('unknown');const pub=await service.handle(event('unknown'));
+  const claim=await service.claim(pub.eventKey);assert.equal(claim.status,'claimed_lab');
+  assert.equal((await service.finish({...claim,outcome:'unknown'})).status,'unknown');
+  assert.equal((await service.claim(pub.eventKey)).reason,'not_pending');
+  await seed('crash');const crash=await service.handle(event('crash'));
+  const c=await service.claim(crash.eventKey);assert.equal(c.status,'claimed_lab');
+  assert.equal((await service.expireClaim(crash.eventKey)).reason,'not_expired_claim');
+  await outbox('crash').update({expiresAt:new Date(Date.now()-1)});
+  assert.equal((await service.expireClaim(crash.eventKey)).status,'unknown');
+  assert.equal((await service.claim(crash.eventKey)).reason,'not_pending');
+  assert.equal((await service.finish({...c,outcome:'accepted_simulated'})).reason,'claim_mismatch');
+ });
 }finally{await deleteApp(app)}

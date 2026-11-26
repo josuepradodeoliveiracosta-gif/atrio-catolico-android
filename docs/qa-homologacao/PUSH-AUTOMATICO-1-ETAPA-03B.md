@@ -1,0 +1,7 @@
+# Push Automático 1.0 — etapa 03B, reserva do outbox em laboratório
+
+A reserva Firestore é transacional e exclusiva por eventKey. O servidor deriva o evento do outbox e relê Auth, configurações, conversa, mensagem, admissões, provas etárias, bloqueios, silêncio, dispositivo, pendência e recibo. A vinculação entre os três registros e suas gerações/expiração deve ser exata; a janela original não pode ser estendida. Não há republicação durante a reserva. A revalidação após a reserva ainda é obrigatória no Worker real: a transação não abrange Auth nem FCM.
+
+Estados de laboratório: pending_transport -> claimed_lab -> accepted_simulated / rejected_simulated / unknown. A finalização exige claimId vigente. Uma reserva vencida é encerrada como unknown, nunca retomada automaticamente. Não há scheduler nem retry de transporte; a escolha conservadora evita reenvio ambíguo ao custo de possível perda de aviso. A mensagem persistida permanece acessível. Nenhuma afirmação de entrega exatamente uma vez.
+
+Testes: concorrência, vinculação, revogação/bloqueio/leitura/supersessão após publicação, conta Auth desativada, vencimento, resultado ambíguo e finalização atrasada. A API de laboratório não está ligada ao verificador OIDC, ao Worker gerado nem ao FCM. Próximo gate: integrar as duas fronteiras em harness, validar reserva D1 e revalidação imediatamente antes do transporte simulado; auditar IAM real antes de qualquer deploy.
