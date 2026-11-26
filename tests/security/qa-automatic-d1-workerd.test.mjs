@@ -61,6 +61,8 @@ test('generated QA entry in local workerd preserves shutdown and trial rejection
  const activatedAt=Date.now()-10000;
  let outbound=0;
  const mf=new Miniflare({modules:true,modulesRoot:repo,scriptPath:resolve(folder,'entry.mjs'),
+  // Miniflare defaults .js to CommonJS, unlike the repository's ESM sources.
+  modulesRules:[{type:'ESModule',include:['**/*.js'],fallthrough:true}],
   compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],cf:false,host:'127.0.0.1',port:0,
   d1Databases:{QA_PUSH_DB:'atrio-generated-entry-local-test'},d1Persist:false,
   bindings:{QA_PUSH_ENABLED:'true',QA_CONVERSATION_PUSH_ENABLED:'true',QA_AUTO_MODE:'automatic',
