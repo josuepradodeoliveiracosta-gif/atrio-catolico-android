@@ -5,6 +5,7 @@ import {D1_TRIAL_SCHEMA,createD1TrialGate} from '../../cloudflare/push-worker/sc
 import {D1_OUTBOX_LAB_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-outbox-lab.mjs';
 import {D1_LAB_BUDGET_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-budget-lab.mjs';
 import {createQaAutomaticCandidateRelay} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-relay-candidate.mjs';
+import {CONTINUOUS_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-continuous-gate.mjs';
 const bearer=()=>{const now=Math.floor(Date.now()/1000),p='atrio-catolico-qa-general';return 'Bearer '+Buffer.from('{"alg":"RS256"}').toString('base64url')+'.'+Buffer.from(JSON.stringify({aud:p,iss:'https://securetoken.google.com/'+p,sub:'qa-nav-alice',email:'alice.navegacao@qa.invalid',email_verified:true,auth_time:now-30,iat:now-1,exp:now+300,firebase:{sign_in_provider:'password'}})).toString('base64url')+'.fixture'};
 const validNotice=()=>new Request('https://qa.invalid/notice',{headers:{Authorization:bearer()}});
 const req=(path,body)=>new Request('https://qa.invalid'+path,body===undefined?{}:{method:'POST',body:JSON.stringify(body)});
@@ -82,4 +83,22 @@ test('malformed notice traffic cannot consume trial reservations or invoke provi
  for(let i=0;i<210;i++)assert.equal((await f.candidate.fetch(req('/notice'),env)).status,401);
  assert.equal(f.sql.prepare('SELECT notices FROM qa_auto_d1_trial_lab').get().notices,0);
  assert.deepEqual(f.stats(),{manual:0,network:0});
+});
+
+test('continuous mode is explicit, blocks manual during lease and rejects expired state',async t=>{
+ const f=fixture(t),now=Date.now(),epoch=f.activatedAt+1,w=f.candidate;
+ f.sql.exec(CONTINUOUS_SCHEMA+"CREATE TABLE atrio_qa_identity(project_id TEXT); INSERT INTO atrio_qa_identity VALUES('atrio-catolico-qa-general')");
+ f.sql.prepare('INSERT INTO qa_auto_d1_continuous_epoch VALUES(?,1,?,?)').run(epoch,now,now+600000);
+ const env={...f.env,QA_AUTO_MODE:'continuous',QA_AUTO_ACTIVATED_AT:String(epoch)};
+ assert.equal((await w.tick(env)).result.reason,'trial_unavailable');
+ const armed={...env,QA_AUTO_CONTINUOUS_ENABLED:'true'};
+ assert.equal((await w.fetch(req('/event',{type:'chat_message'}),armed)).status,503);
+ assert.equal((await w.fetch(req('/notice'),armed)).status,401);
+ assert.equal((await w.fetch(req('/notice'),{...armed,QA_AUTO_MODE:'manual'})).status,503);
+ f.sql.prepare('UPDATE qa_auto_d1_continuous_epoch SET quota_valid_until=?').run(now+1000);
+ assert.equal((await w.tick(armed)).result.reason,'trial_unavailable');
+ assert.equal((await w.fetch(validNotice(),armed)).status,503);
+ f.sql.exec('UPDATE qa_auto_d1_continuous_epoch SET enabled=0');
+ assert.equal((await w.fetch(req('/notice'),{...armed,QA_AUTO_MODE:'manual'})).status,200);
+ assert.deepEqual(f.stats(),{manual:1,network:0});
 });
