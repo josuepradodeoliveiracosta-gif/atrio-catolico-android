@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createD1HttpCandidateLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-http-lab.mjs';
 import {createMeteredD1Lab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-metered-lab.mjs';
 import {D1_LAB_BUDGET_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-budget-lab.mjs';
 import {createD1ModeLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-mode-lab.mjs';
@@ -18,7 +19,7 @@ import {createFreeSnapshotLab} from '../../cloudflare/push-worker/scripts/qa-aut
 import {createFreePublicationLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-publication-lab.mjs';
 import {createFreeRestDiscoveryLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-rest-lab.mjs';
 import {FREE_BUDGET_SCHEMA,createFreeBudgetLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-budget-lab.mjs';
-import {createHash} from 'node:crypto';
+import {createHash,generateKeyPairSync,verify} from 'node:crypto';
 import {initializeApp,deleteApp} from 'firebase-admin/app';
 import {getAuth} from 'firebase-admin/auth';
 import {getFirestore,FieldValue} from 'firebase-admin/firestore';
@@ -719,6 +720,102 @@ try{
      console.log('D1 single tick reserved units: '+JSON.stringify({tick:tick.usage,notice:n.usage}));
     }finally{globalThis.fetch=previousFetch}
 
+    await t.test('full HTTP candidate: cold OAuth, read-only emulator, D1 and synthetic FCM',async()=>{
+     const keys=generateKeyPairSync('rsa',{modulusLength:2048});
+     const email='atrio-qa-general-push@'+projectId+'.iam.gserviceaccount.com';
+     const serviceAccount={project_id:projectId,client_email:email,private_key:keys.privateKey.export({type:'pkcs8',format:'pem'})};
+     const env={PUSH_DB:bridge,PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:'fixture',FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify(serviceAccount)};
+     const authTime=Math.floor(Date.now()/1000)-30;
+     const bearer=uid=>'Bearer '+Buffer.from('{"alg":"RS256"}').toString('base64url')+'.'+
+      Buffer.from(JSON.stringify({aud:projectId,iss:'https://securetoken.google.com/'+projectId,sub:uid,exp:authTime+300,auth_time:authTime})).toString('base64url')+'.fixture';
+     const recognized=new Map([alice,bob].map(uid=>[bearer(uid).slice(7),uid]));
+     let calls=[],signals=0,lost=false,revoked=false;
+     const providerAccount=async uid=>{
+      const a=await auth.getUser(uid);
+      return {localId:a.uid,email:a.email,emailVerified:a.emailVerified,disabled:a.disabled,validSince:revoked?String(authTime+1):'1'};
+     };
+     const fetchImpl=async(url,init)=>{
+      calls.push(new URL(url).origin);
+      assert.equal(init.redirect,'manual');assert.ok(init.signal);
+      if(url==='https://oauth2.googleapis.com/token'){
+       const [h,p,s]=new URLSearchParams(init.body).get('assertion').split('.');
+       assert.ok(verify('RSA-SHA256',Buffer.from(h+'.'+p),keys.publicKey,Buffer.from(s,'base64url')));
+       const claim=JSON.parse(Buffer.from(p,'base64url'));
+       assert.equal(claim.iss,email);assert.equal(claim.aud,url);
+       return Response.json({access_token:'fixture-http-token',token_type:'Bearer',expires_in:3600});
+      }
+      if(url==='https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=fixture'){
+       const uid=recognized.get(JSON.parse(init.body).idToken);
+       return uid?Response.json({users:[await providerAccount(uid)]}):Response.json({}, {status:401});
+      }
+      assert.equal(init.headers.Authorization,'Bearer fixture-http-token');
+      if(url==='https://identitytoolkit.googleapis.com/v1/projects/'+projectId+'/accounts:lookup'){
+       const ids=JSON.parse(init.body).localId;
+       assert.deepEqual([...ids].sort(),[alice,bob].sort());
+       return Response.json({users:await Promise.all(ids.map(providerAccount))});
+      }
+      if(url==='https://fcm.googleapis.com/v1/projects/'+projectId+'/messages:send'){
+       const {message}=JSON.parse(init.body);signals++;
+       assert.equal(message.token,'synthetic-not-an-fcm-token');assert.deepEqual(message.data,{signal:'refresh'});
+       assert.ok(Number.parseInt(message.android.ttl)>=10&&Number.parseInt(message.android.ttl)<=60);
+       if(lost)throw Error('simulated lost response');
+       return Response.json({name:'projects/'+projectId+'/messages/http-fixture'});
+      }
+      const u=new URL(url);
+      assert.equal(u.origin,'https://firestore.googleapis.com');
+      assert.ok(u.pathname.startsWith('/v1/'+remote));
+      const suffix=u.pathname.slice(('/v1/'+remote).length);
+      if(init.method==='POST'){
+       assert.ok([':beginTransaction',':rollback',':batchGet','/users/'+alice+':runQuery','/users/'+bob+':runQuery'].includes(suffix));
+       if(suffix===':beginTransaction')assert.deepEqual(JSON.parse(init.body),{options:{readOnly:{}}});
+       assert.equal(u.search,'');
+      }else{
+       assert.equal(init.method,'GET');
+       assert.ok(['/users/'+alice+'/pushDevices','/users/'+bob+'/pushDevices'].includes(suffix));
+       assert.equal(u.search,'?pageSize=6');
+      }
+      const reply=await localFetch('http://'+host+u.pathname.replace(remote,local)+u.search,{
+       method:init.method,headers:{'Content-Type':'application/json',Authorization:'Bearer owner'},
+       redirect:'error',...(init.body?{body:init.body.replaceAll(remote,local)}:{})});
+      return new Response((await reply.text()).replaceAll(local,remote),{status:reply.status,headers:{'Content-Type':'application/json'}});
+     };
+     const candidate=createD1HttpCandidateLab({db:bridge,enabled:true,activatedAt,fetchImpl,manualWorker});
+     const disabled=createD1HttpCandidateLab({db:bridge,activatedAt,fetchImpl,manualWorker});
+     assert.equal((await disabled.tick(env)).result.reason,'automation_disabled');assert.equal(calls.length,0);
+     sql.prepare('UPDATE qa_auto_d1_outbox_lab SET expires_at=? WHERE event_key=?').run(Date.now()-1,hash('d1-metered'));
+     await seed('d1-http-complete');
+     const result=await candidate.tick(env);
+     assert.equal(result.result.transportStatus,'accepted_simulated',JSON.stringify(result));
+     assert.equal(result.httpUsage.actualExternalAttempts,calls.length);
+     assert.equal(result.httpUsage.actualExternalAttempts,30);
+     assert.equal(calls.filter(x=>x==='https://oauth2.googleapis.com').length,1);
+     assert.equal(signals,1);
+     assert.equal(sql.prepare('SELECT state FROM qa_auto_d1_outbox_lab WHERE event_key=?').get(hash('d1-http-complete')).state,'accepted_simulated');
+     assert.equal(sql.prepare('SELECT count(*) AS n FROM delivered WHERE event_key=?').get('chat:'+AUTO_CHAT+':d1-http-complete:'+alice).n,1);
+     await absent('d1-http-complete');assert.equal((await pending.get()).exists,false);
+     const notice=uid=>candidate.notice(new Request('https://qa.invalid/notice',{headers:{Authorization:bearer(uid)}}),env);
+     calls=[];
+     const n=await notice(alice);
+     assert.equal(n.response.status,200);assert.equal(n.response.headers.get('cache-control'),'no-store');
+     assert.deepEqual(await n.response.json(),{conversationId:AUTO_CHAT,messageId:'d1-http-complete',senderUid:bob});
+     assert.equal(n.httpUsage.actualExternalAttempts,calls.length);assert.equal(calls.length,8);
+     assert.equal((await notice(bob)).response.status,404);
+     revoked=true;assert.equal((await notice(alice)).response.status,401);revoked=false;
+     await d('users/'+bob+'/chatPushAdmission/current').update({status:'revoked'});
+     assert.equal((await notice(alice)).response.status,404);
+     assert.equal((await candidate.tick(env)).result.reason,'not_pending');assert.equal(signals,1);
+     // An uncertain FCM response preserves both terminal outbox and marker.
+     sql.prepare('UPDATE qa_auto_d1_outbox_lab SET expires_at=? WHERE event_key=?').run(Date.now()-1,hash('d1-http-complete'));
+     await seed('d1-http-unknown');lost=true;
+     const unknown=await candidate.tick(env);
+     assert.equal(unknown.result.status,'terminal_lab',JSON.stringify(unknown));
+     assert.equal(sql.prepare('SELECT state FROM qa_auto_d1_outbox_lab WHERE event_key=?').get(hash('d1-http-unknown')).state,'unknown');
+     assert.equal(sql.prepare('SELECT count(*) AS n FROM delivered WHERE event_key=?').get('chat:'+AUTO_CHAT+':d1-http-unknown:'+alice).n,1);
+     assert.equal((await candidate.tick(env)).result.reason,'not_pending');assert.equal(signals,2);
+     assert.equal((await notice(alice)).response.status,404);
+     await absent('d1-http-unknown');assert.equal((await pending.get()).exists,false);
+     console.log('D1 full HTTP candidate: '+JSON.stringify({tick:result.httpUsage,notice:n.httpUsage,firestoreWritesByAdapter:0}));
+    });
     assert.ok(reads.length>0);
     console.log('D1 read authorization lab: '+JSON.stringify({readOnlyRequests:reads.length,firestoreWritesByAdapter:0}));
    });
