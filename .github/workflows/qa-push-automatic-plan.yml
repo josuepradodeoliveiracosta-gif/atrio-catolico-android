@@ -24,6 +24,7 @@ on:
       - 'tests/security/qa-automatic-free-publication-lab.test.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-free-budget-lab.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-free-snapshot-lab.mjs'
+      - 'cloudflare/push-worker/scripts/qa-automatic-free-claim-lab.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-free-flow-lab.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-free-recovery-lab.mjs'
       - 'tests/security/qa-automatic-free-recovery-lab.test.mjs'

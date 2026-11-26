@@ -113,7 +113,7 @@ export function createFreeSnapshotLab({transport,lookupAccounts}={}){
    blocked[uid]=others[i*3+2]!==null;
   }
   return {transaction,creation:stamp(messageDoc.createTime),now,outbox:row(outbox),retry:row(retry),
-   pendingVersion:pending?.updateTime??null,snapshot:{projectId,databaseId,chatId:AUTO_CHAT,messageId:event.messageId,
+   pendingVersion:pending?.updateTime??null,outboxVersion:outbox?.updateTime??null,snapshot:{projectId,databaseId,chatId:AUTO_CHAT,messageId:event.messageId,
     managedBoundary:writeBoundary!==null||pagination!==null,config:row(configDoc),
     room:row(roomDoc),message,accounts,admissions,eligibility,blocked,
     muted:mute!==null&&row(mute)?.muted!==false,deviceEligible,receipt:row(receipt),pending:row(pending)}};

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createFreeClaimLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-claim-lab.mjs';
 import {createFreeRecoveryLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-recovery-lab.mjs';
 import {createFreeFlowLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-flow-lab.mjs';
 import {createFreeSnapshotLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-snapshot-lab.mjs';
@@ -386,8 +387,9 @@ try{
     const result=sql.prepare(q).run(...args);return {success:true,meta:{changes:result.changes}};
    }}}}}}});
    const discover=createFreeRestDiscoveryLab({transport,reserveDiscovery:budget.reserveDiscovery});
-   const publish=createFreePublicationLab({transport,reserveBudget:budget.reservePublication,
-    readSnapshot:createFreeSnapshotLab({transport,lookupAccounts})});
+   const readSnapshot=createFreeSnapshotLab({transport,lookupAccounts});
+   const publish=createFreePublicationLab({transport,reserveBudget:budget.reservePublication,readSnapshot});
+   const restClaim=createFreeClaimLab({enabled:true,transport,readSnapshot});
    const input={enabled:true,projectId,activatedAt:Date.now()-10000};
    await seed('rest-real');
    const candidate=await discover(input);
@@ -412,7 +414,7 @@ try{
    const totals=sql.prepare('SELECT * FROM qa_auto_daily_budget_lab').get();
    assert.equal(totals.discovery,2);assert.equal(totals.publication,3);
    await seed('rest-worker');
-   const workerLab=await createWorkerLab(t,{db,auth,service});
+   const workerLab=await createWorkerLab(t,{db,auth,service:restClaim});
    const recover=createFreeRecoveryLab({transport,reserveRecovery:budget.reserveRecovery});
    const flow=createFreeFlowLab({enabled:true,activatedAt:input.activatedAt,discover,publish,recover,
     reserveTransport:budget.reserveTransport,dispatch:workerLab.dispatchInternal});
@@ -442,6 +444,38 @@ try{
    assert.equal(sql.prepare('SELECT attempts FROM qa_auto_transport_budget_lab').get().attempts,2);
    assert.equal(sql.prepare('SELECT attempts FROM qa_auto_recovery_budget_lab').get().attempts,3);
    assert.equal(sql.prepare('SELECT publication FROM qa_auto_daily_budget_lab').get().publication,4);
+   await seed('rest-claim-race');
+   const race=await publish({enabled:true,candidate:await discover(input)});
+   assert.equal(race.status,'published_lab');
+   // A competing SDK claim remains a valid concurrency adversary.
+   const claims=await Promise.allSettled([restClaim.claim(race.eventKey),service.claim(race.eventKey)]);
+   const winners=claims.filter(r=>r.status==='fulfilled'&&r.value.status==='claimed_lab');
+   assert.equal(winners.length,1,JSON.stringify(claims));
+   const claim=winners[0].value;
+   assert.equal((await restClaim.finish({...claim,claimId:crypto.randomUUID(),outcome:'accepted_simulated'})).reason,'claim_mismatch');
+   assert.equal((await restClaim.finish({...claim,outcome:'unknown'})).status,'unknown');
+   assert.equal((await restClaim.claim(race.eventKey)).reason,'not_pending');
+   await seed('rest-claim-revoked');
+   const revoked=await publish({enabled:true,candidate:await discover(input)});
+   assert.equal(revoked.status,'published_lab');
+   await d('users/'+bob+'/chatPushAdmission/current').update({status:'revoked'});
+   assert.equal((await restClaim.claim(revoked.eventKey)).status,'ignored');
+   assert.equal((await outbox('rest-claim-revoked').get()).data().state,'pending_transport');
+   await seed('rest-claim-ambiguous');
+   const uncertain=await publish({enabled:true,candidate:await discover(input)});
+   assert.equal(uncertain.status,'published_lab');
+   const ambiguousTransport=async req=>{
+    const result=await transport(req);
+    if(req.url.endsWith(':commit'))throw Error('lost response after commit');
+    return result;
+   };
+   const ambiguous=createFreeClaimLab({enabled:true,transport:ambiguousTransport,readSnapshot});
+   assert.equal((await ambiguous.claim(uncertain.eventKey)).status,'claim_unknown_lab');
+   assert.equal((await outbox('rest-claim-ambiguous').get()).data().state,'claimed_lab');
+   assert.equal((await restClaim.claim(uncertain.eventKey)).reason,'not_pending');
+   await outbox('rest-claim-ambiguous').update({expiresAt:new Date(Date.now()-1)});
+   assert.equal((await restClaim.expireClaim(uncertain.eventKey)).status,'unknown');
+
 
   }finally{sql.close()}
  });
