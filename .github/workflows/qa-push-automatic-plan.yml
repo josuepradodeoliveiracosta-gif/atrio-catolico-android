@@ -7,6 +7,8 @@ on:
       - 'firebase/qa-geral-celular/pilot/conversation-push-identity.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-policy.mjs'
       - 'tests/security/qa-automatic-d1-runtime-lab.test.mjs'
+      - 'tests/security/qa-automatic-d1-workerd-fixture.mjs'
+      - 'tests/security/qa-automatic-d1-workerd.test.mjs'
       - 'tests/security/qa-push-automatic-plan.test.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-emulator.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-retry-plan.mjs'
@@ -96,3 +98,18 @@ jobs:
           npm ci --ignore-scripts
           node prepare.mjs
           ./node_modules/.bin/firebase emulators:exec --only firestore,auth --project demo-atrio-v11 'node --test qa-push-automatic-emulator.test.mjs'
+
+  workerd-local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install pinned local runtime only
+        run: npm install --prefix "$RUNNER_TEMP/atrio-workerd" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund miniflare@4.20260730.0
+      - name: Local workerd and D1 only
+        run: ATRIO_MINIFLARE_ROOT="$RUNNER_TEMP/atrio-workerd" node --test tests/security/qa-automatic-d1-workerd.test.mjs
