@@ -31,9 +31,9 @@ export function labBearer(extra={}){
 }
 const originalSource=renderConversationPushPilotWorker(readFileSync(
  new URL('../../cloudflare/push-worker/src/index.js',import.meta.url),'utf8'));
-const anchor='const uid=await verifyIdentity(request,env);';
+const anchor="const uid=await verifyIdentity(request,env);\n      if(!uid) return response(401,'unauthorized');\n      stage='event_oauth';";
 assert.equal(originalSource.split(anchor).length,2,'event identity boundary changed');
-const labSource=originalSource.replace(anchor,'const uid=labActors.get(request);')+
+const labSource=originalSource.replace(anchor,anchor.replace('const uid=await verifyIdentity(request,env);','const uid=labActors.get(request);'))+
  '\nconst labActors=new WeakMap();\nexport function bindLabActor(request,uid){labActors.set(request,uid);return request;}\n';
 const {default:worker,bindLabActor}=await import('data:text/javascript;base64,'+Buffer.from(labSource).toString('base64'));
 const originalFetch=globalThis.fetch;
