@@ -5,6 +5,8 @@ import {D1_TRIAL_SCHEMA,createD1TrialGate} from '../../cloudflare/push-worker/sc
 import {D1_OUTBOX_LAB_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-outbox-lab.mjs';
 import {D1_LAB_BUDGET_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-budget-lab.mjs';
 import {createQaAutomaticCandidateRelay} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-relay-candidate.mjs';
+const bearer=()=>{const now=Math.floor(Date.now()/1000),p='atrio-catolico-qa-general';return 'Bearer '+Buffer.from('{"alg":"RS256"}').toString('base64url')+'.'+Buffer.from(JSON.stringify({aud:p,iss:'https://securetoken.google.com/'+p,sub:'qa-nav-alice',email:'alice.navegacao@qa.invalid',email_verified:true,auth_time:now-30,iat:now-1,exp:now+300,firebase:{sign_in_provider:'password'}})).toString('base64url')+'.fixture'};
+const validNotice=()=>new Request('https://qa.invalid/notice',{headers:{Authorization:bearer()}});
 const req=(path,body)=>new Request('https://qa.invalid'+path,body===undefined?{}:{method:'POST',body:JSON.stringify(body)});
 function fixture(t){
  const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
@@ -43,7 +45,7 @@ test('automatic rejects public send, wrong epoch, disabled flags and missing sch
  assert.deepEqual(f.stats(),{manual:0,network:0});
  f.sql.exec('DROP TABLE qa_auto_d1_trial_lab');
  assert.equal((await w.tick(env)).result.reason,'trial_unavailable');
- assert.equal((await w.fetch(req('/notice'),env)).status,503);
+ assert.equal((await w.fetch(validNotice(),env)).status,503);
 });
 test('lifetime trial reservations are atomic and independent of UTC reset',async t=>{
  const f=fixture(t);f.arm();
@@ -73,4 +75,11 @@ test('manual cannot resume until live outbox drains, expired records retained',a
  f.sql.exec('UPDATE qa_auto_d1_outbox_lab SET expires_at=1');
  assert.equal((await f.candidate.fetch(req('/notice'),env)).status,200);
  assert.equal(f.sql.prepare('SELECT count(*) AS n FROM qa_auto_d1_outbox_lab').get().n,1);
+});
+
+test('malformed notice traffic cannot consume trial reservations or invoke provider',async t=>{
+ const f=fixture(t);f.arm();const env={...f.env,QA_AUTO_MODE:'automatic'};
+ for(let i=0;i<210;i++)assert.equal((await f.candidate.fetch(req('/notice'),env)).status,401);
+ assert.equal(f.sql.prepare('SELECT notices FROM qa_auto_d1_trial_lab').get().notices,0);
+ assert.deepEqual(f.stats(),{manual:0,network:0});
 });

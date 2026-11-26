@@ -39,7 +39,7 @@ export function createMeteredD1Lab({db,enabled=false,activatedAt,transport,looku
   const activeWorker=createD1ModeLab({db:measuredDb,mode:'automatic',activatedAt,manualWorker,
    verifyIdentity:async(...args)=>{meter.chargeExternal();return verifyIdentity(...args)},
    readAuthorization,listDevices:async uid=>{meter.chargeExternal();return listDevices(uid)},
-   sendRefresh:async message=>{meter.chargeExternal();return sendRefresh(message)},
+   sendRefresh:async(message,expiresAt)=>{meter.chargeExternal();return sendRefresh(message,expiresAt)},
    reserveAttempt:async()=>{if(!workReserved||dispatchUsed)return false;dispatchUsed=true;return true}
   });
   const discover=createFreeRestDiscoveryLab({transport:measuredTransport,reserveDiscovery:()=>reserve('discovery')});

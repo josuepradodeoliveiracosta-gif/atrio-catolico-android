@@ -2,7 +2,9 @@
 // No public tick, scheduler, migration or default network implementation.
 import {createQaRelay} from '../src/qa-geral.js';
 import {createD1HttpCandidateLab} from './qa-automatic-d1-http-lab.mjs';
-import {createD1TrialGate,manualModeReady} from './qa-automatic-d1-trial-lab.mjs';
+import {createD1TrialGate,manualModeReady,trialCurrent} from './qa-automatic-d1-trial-lab.mjs';
+import {parseD1NoticeClaims} from './qa-automatic-d1-notice-claims.mjs';
+const unauthorized=()=>Response.json({status:'unauthorized'},{status:401,headers:{'Cache-Control':'no-store'}});
 const disabled=()=>Response.json({status:'disabled'},{status:503,headers:{'Cache-Control':'no-store'}});
 const ignored=()=>({result:{status:'ignored',reason:'trial_unavailable'},usage:null,httpUsage:null});
 function config(env){
@@ -19,14 +21,16 @@ export function createQaAutomaticCandidateRelay({manualWorker,conversationsApi,f
   const db=env.QA_PUSH_DB,activatedAt=config(env);
   const end=await createD1TrialGate({db,activatedAt})(kind);
   if(end===null||Date.now()>=end)return null;
+  const cutoff=Math.min(end,Date.now()+(kind==='tick'?45000:15000));
   const flow=createD1HttpCandidateLab({db,enabled:true,activatedAt,manualWorker,
+   beforeSend:async()=>Date.now()<cutoff&&await trialCurrent(db,activatedAt,end)&&Date.now()<cutoff,
    fetchImpl:(url,init)=>{
     // No network attempt after the finite trial deadline. Prior authorization
     // and the outbox deadline still apply; no cross-store atomicity.
-    if(Date.now()>=end)throw Error('trial_expired');
+    if(Date.now()>=cutoff)throw Error('trial_expired');
     return fetchImpl(url,init);
    }});
-  return {flow,end,env:{PUSH_DB:db,PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:env.QA_FIREBASE_WEB_API_KEY,
+  return {flow,end,cutoff,db,activatedAt,env:{PUSH_DB:db,PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:env.QA_FIREBASE_WEB_API_KEY,
    FIREBASE_SERVICE_ACCOUNT_JSON:env.QA_FIREBASE_SERVICE_ACCOUNT_JSON}};
  }
  return Object.freeze({
@@ -40,10 +44,11 @@ export function createQaAutomaticCandidateRelay({manualWorker,conversationsApi,f
     }
     if(!enabled(env)||new URL(req.url).pathname!=='/notice'||req.method!=='GET')return disabled();
     if(new URL(req.url).search)return disabled();
+    if(!parseD1NoticeClaims(req))return unauthorized();
     const i=await invocation(env,'notice');
     if(!i)return disabled();
     const n=await i.flow.notice(req,i.env);
-    return Date.now()<i.end?n.response:disabled();
+    return Date.now()<i.cutoff&&await trialCurrent(i.db,i.activatedAt,i.end)&&Date.now()<i.cutoff?n.response:disabled();
    }};
    return createQaRelay(conversation,conversationsApi).fetch(request,env);
   },

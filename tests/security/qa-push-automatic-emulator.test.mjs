@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
 import {createD1HttpCandidateLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-http-lab.mjs';
+import {createQaAutomaticCandidateRelay} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-relay-candidate.mjs';
+import {D1_TRIAL_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-trial-lab.mjs';
 import {createMeteredD1Lab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-metered-lab.mjs';
 import {D1_LAB_BUDGET_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-budget-lab.mjs';
 import {createD1ModeLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-mode-lab.mjs';
@@ -727,7 +729,7 @@ try{
      const env={PUSH_DB:bridge,PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:'fixture',FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify(serviceAccount)};
      const authTime=Math.floor(Date.now()/1000)-30;
      const bearer=uid=>'Bearer '+Buffer.from('{"alg":"RS256"}').toString('base64url')+'.'+
-      Buffer.from(JSON.stringify({aud:projectId,iss:'https://securetoken.google.com/'+projectId,sub:uid,exp:authTime+300,auth_time:authTime})).toString('base64url')+'.fixture';
+      Buffer.from(JSON.stringify({aud:projectId,iss:'https://securetoken.google.com/'+projectId,sub:uid,email:uid===alice?'alice.navegacao@qa.invalid':'bob.navegacao@qa.invalid',email_verified:true,firebase:{sign_in_provider:'password'},iat:authTime+1,exp:authTime+300,auth_time:authTime})).toString('base64url')+'.fixture';
      const recognized=new Map([alice,bob].map(uid=>[bearer(uid).slice(7),uid]));
      let calls=[],signals=0,lost=false,revoked=false;
      const providerAccount=async uid=>{
@@ -815,6 +817,34 @@ try{
      assert.equal((await notice(alice)).response.status,404);
      await absent('d1-http-unknown');assert.equal((await pending.get()).exists,false);
      console.log('D1 full HTTP candidate: '+JSON.stringify({tick:result.httpUsage,notice:n.httpUsage,firestoreWritesByAdapter:0}));
+     // Exercise the actual QA relay composition, not only the internal flow.
+     sql.exec(D1_TRIAL_SCHEMA);
+     sql.prepare('INSERT INTO qa_auto_d1_trial_lab(singleton,activated_at,ends_at) VALUES(1,?,?)').run(activatedAt,activatedAt+3600000);
+     sql.prepare('UPDATE qa_auto_d1_outbox_lab SET expires_at=? WHERE event_key=?').run(Date.now()-1,hash('d1-http-unknown'));
+     await seed('d1-relay-complete');lost=false;calls=[];
+     const relayEnv={QA_PUSH_ENABLED:'true',QA_CONVERSATION_PUSH_ENABLED:'true',QA_AUTO_MODE:'automatic',
+      QA_AUTO_ACTIVATED_AT:String(activatedAt),QA_PUSH_DB:bridge,QA_FIREBASE_WEB_API_KEY:env.FIREBASE_WEB_API_KEY,
+      QA_FIREBASE_SERVICE_ACCOUNT_JSON:env.FIREBASE_SERVICE_ACCOUNT_JSON};
+     const relay=createQaAutomaticCandidateRelay({manualWorker,fetchImpl});
+     const publicNotice=uid=>relay.fetch(new Request('https://qa.invalid/notice',{headers:{Authorization:bearer(uid)}}),relayEnv);
+     assert.equal((await relay.fetch(new Request('https://qa.invalid/event',{method:'POST',body:JSON.stringify({type:'chat_message'})}),relayEnv)).status,503);
+     assert.equal((await relay.fetch(new Request('https://qa.invalid/notice'),relayEnv)).status,401);
+     assert.equal(calls.length,0);
+     const cycle=await relay.tick(relayEnv);
+     assert.equal(cycle.result.transportStatus,'accepted_simulated',JSON.stringify(cycle));
+     assert.equal(cycle.httpUsage.actualExternalAttempts,30);assert.equal(signals,3);
+     const answer=await publicNotice(alice);assert.equal(answer.status,200);
+     assert.deepEqual(await answer.json(),{conversationId:AUTO_CHAT,messageId:'d1-relay-complete',senderUid:bob});
+     assert.equal((await publicNotice(bob)).status,404);
+     assert.equal((await relay.tick(relayEnv)).result.reason,'not_pending');assert.equal(signals,3);
+     sql.exec('UPDATE qa_auto_d1_activation_lab SET enabled=0');
+     assert.equal((await relay.tick(relayEnv)).result.reason,'trial_unavailable');
+     assert.equal((await publicNotice(alice)).status,503);
+     assert.equal((await relay.fetch(new Request('https://qa.invalid/notice'),{...relayEnv,QA_AUTO_MODE:'manual'})).status,503);
+     assert.deepEqual({...sql.prepare('SELECT ticks,notices FROM qa_auto_d1_trial_lab').get()},{ticks:2,notices:2});
+     await absent('d1-relay-complete');assert.equal((await pending.get()).exists,false);
+     console.log('D1 QA relay integrated: '+JSON.stringify({externalAttempts:cycle.httpUsage.actualExternalAttempts,signals:1,firestoreWritesByAdapter:0}));
+
     });
     assert.ok(reads.length>0);
     console.log('D1 read authorization lab: '+JSON.stringify({readOnlyRequests:reads.length,firestoreWritesByAdapter:0}));

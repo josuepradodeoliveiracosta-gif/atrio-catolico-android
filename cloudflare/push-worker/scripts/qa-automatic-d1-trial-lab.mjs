@@ -31,3 +31,10 @@ export async function manualModeReady(db){
   return !await db.prepare('SELECT event_key FROM qa_auto_d1_outbox_lab WHERE expires_at>'+clock+' LIMIT 1').bind().first();
  }catch{return false}
 }
+
+export async function trialCurrent(db,activatedAt,end){
+ try{
+  const r=await db.prepare("SELECT t.singleton FROM qa_auto_d1_trial_lab t JOIN qa_auto_d1_activation_lab a ON a.singleton=t.singleton WHERE t.singleton=1 AND t.activated_at=? AND t.ends_at=? AND a.enabled=1 AND a.activated_at=t.activated_at AND t.ends_at>"+clock).bind(activatedAt,end).first();
+  return r?.singleton===1;
+ }catch{return false}
+}

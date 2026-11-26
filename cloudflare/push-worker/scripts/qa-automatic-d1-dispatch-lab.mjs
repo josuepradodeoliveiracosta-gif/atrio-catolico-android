@@ -51,7 +51,7 @@ export function createD1DispatchLab({enabled=false,db,outbox,listDevices,sendRef
       }else{
        const ttl=Math.min(60,Math.floor((b.expiresAt-Date.now())/1000));
        if(ttl>=10){
-        const res=await sendRefresh({token:current.token,data:{signal:'refresh'},android:{priority:'HIGH',ttl:ttl+'s'}});
+        const res=await sendRefresh({token:current.token,data:{signal:'refresh'},android:{priority:'HIGH',ttl:ttl+'s'}},b.expiresAt);
         // Only an explicit success receipt for this project counts as acceptance.
         const prefix='projects/'+identity.projectId+'/messages/';
         if(res?.ok===true){

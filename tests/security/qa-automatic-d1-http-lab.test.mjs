@@ -35,7 +35,7 @@ test('fixed service account, OAuth signature, one token per invocation',async()=
  assert.equal((await f.http.transport(begin)).status,200);
  assert.equal((await f.http.lookupAccounts(lookup))[lookup[0]].uid,lookup[0]);
  assert.equal((await f.http.listDevices(lookup[0])).length,1);
- const res=await f.http.sendRefresh({token:'synthetic-not-an-fcm-token',data:{signal:'refresh'},android:{priority:'HIGH',ttl:'60s'}});
+ const res=await f.http.sendRefresh({token:'synthetic-not-an-fcm-token',data:{signal:'refresh'},android:{priority:'HIGH',ttl:'60s'}},Date.now()+61000);
  assert.equal((await res.json()).name,'projects/'+project+'/messages/fixture');
  assert.equal(f.calls.filter(x=>x.includes('oauth2')).length,1);
  assert.equal(f.http.usage().actualExternalAttempts,5);
@@ -64,10 +64,20 @@ test('actual fetch attempts capped independent of logical meter',async()=>{
 });
 test('recipient claims do not authenticate; provider must confirm exact unrevoked user',async()=>{
  const f=fixture('notice'),now=Math.floor(Date.now()/1000);
- const bearer=(p=project)=>'Bearer '+Buffer.from('{}').toString('base64url')+'.'+Buffer.from(JSON.stringify({aud:p,iss:'https://securetoken.google.com/'+p,sub:lookup[0],exp:now+300,auth_time:now-30})).toString('base64url')+'.fixture';
+ const bearer=(p=project)=>'Bearer '+Buffer.from('{"alg":"RS256"}').toString('base64url')+'.'+Buffer.from(JSON.stringify({aud:p,iss:'https://securetoken.google.com/'+p,sub:lookup[0],email:identity.accounts[lookup[0]],email_verified:true,firebase:{sign_in_provider:'password'},iat:now-5,exp:now+300,auth_time:now-30})).toString('base64url')+'.fixture';
  const req=a=>new Request('https://qa.invalid/notice',{headers:{Authorization:a}});
  assert.equal(await f.http.verifyIdentity(req(bearer('prod'))),null);assert.equal(f.calls.length,0);
  assert.equal(await f.http.verifyIdentity(req(bearer())),lookup[0]);
  f.flags.wrongUser=true;assert.equal(await f.http.verifyIdentity(req(bearer())),null);
  f.flags.wrongUser=false;f.flags.badAuth=true;assert.equal(await f.http.verifyIdentity(req(bearer())),null);
+});
+
+test('last-moment send gate denies FCM and expired deadline never acquires OAuth',async()=>{
+ const msg={token:'synthetic-not-an-fcm-token',data:{signal:'refresh'},android:{priority:'HIGH',ttl:'60s'}};
+ const denied=fixture('tick',{beforeSend:async()=>false});
+ await assert.rejects(denied.http.sendRefresh(msg,Date.now()+60000));
+ assert.equal(denied.calls.length,1);assert.equal(denied.http.usage().fcmAttempted,false);
+ const expired=fixture();
+ await assert.rejects(expired.http.sendRefresh(msg,Date.now()-1));
+ assert.equal(expired.calls.length,0);
 });

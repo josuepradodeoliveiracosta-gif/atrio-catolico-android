@@ -2,6 +2,7 @@
 // Never imported by the deployed Worker. One factory per invocation.
 import {createMeteredD1Lab} from './qa-automatic-d1-metered-lab.mjs';
 import {D1_LAB_ENVELOPE} from './qa-automatic-d1-budget-lab.mjs';
+import {parseD1NoticeClaims} from './qa-automatic-d1-notice-claims.mjs';
 import {AUTO_CHAT} from '../../../firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs';
 import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-celular/pilot/conversation-push-identity.mjs';
 const project=identity.projectId,root='projects/'+project+'/databases/'+identity.databaseId+'/documents';
@@ -67,10 +68,10 @@ function account(a){
  return !!a&&uids.includes(a.localId)&&a.email===identity.accounts[a.localId]&&a.emailVerified===true&&
   (a.disabled===false||a.disabled===undefined);
 }
-export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,webApiKey}={}){
- if(!['tick','notice'].includes(kind)||typeof fetchImpl!=='function')fail();
+export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,webApiKey,beforeSend=async()=>true}={}){
+ if(!['tick','notice'].includes(kind)||typeof fetchImpl!=='function'||typeof beforeSend!=='function')fail();
  const cap=kind==='tick'?D1_LAB_ENVELOPE.externalPerTick:D1_LAB_ENVELOPE.externalPerNotice;
- let attempts=0,access=null,oauthStarted=false,sent=false;
+ let attempts=0,access=null,oauthStarted=false,sent=false,fcmAttempted=false;
  function ready(){
   if(enabled!==true||serviceAccount?.project_id!==project||serviceAccount.client_email!==accountEmail||
      typeof serviceAccount.private_key!=='string'||serviceAccount.private_key.length>8192||
@@ -78,6 +79,7 @@ export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,web
  }
  async function request(url,init){
   ready();if(attempts>=cap)fail();attempts++;
+  if(url==='https://fcm.googleapis.com/v1/projects/'+project+'/messages:send')fcmAttempted=true;
   const r=await fetchImpl(url,{...init,redirect:'manual',signal:AbortSignal.timeout(10000)});
   if(!Number.isInteger(r?.status)||r.status<200||r.status>599||(r.status>=300&&r.status<400)||r.type==='opaqueredirect')fail();
   return r;
@@ -120,20 +122,15 @@ export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,web
   },
   async verifyIdentity(req){
    ready();if(kind!=='notice')return null;
-   const jwt=/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.exec(req.headers.get('Authorization')||'')?.[1];
-   if(!jwt||jwt.length>5000)return null;
-   let c;
-   try{const payload=jwt.split('.')[1];c=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(atob(payload.replaceAll('-','+').replaceAll('_','/')+'='.repeat((4-payload.length%4)%4)),x=>x.charCodeAt(0))))}catch{return null}
-   const now=Math.floor(Date.now()/1000);
-   if(c?.aud!==project||c.iss!=='https://securetoken.google.com/'+project||!uids.includes(c.sub)||
-      !Number.isSafeInteger(c.exp)||c.exp<=now||!Number.isSafeInteger(c.auth_time)||c.auth_time>now)return null;
-   // Claims only reject; the exact ID token must be authenticated by Google.
+   const claims=parseD1NoticeClaims(req);
+   if(!claims)return null;
+   const jwt=claims.token;
    const r=await request(auth+'/accounts:lookup?key='+encodeURIComponent(webApiKey),{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:jwt})});
    if(r.status!==200)return null;
    const b=await boundedJson(r),a=b?.users?.[0];
-   if(!Array.isArray(b?.users)||b.users.length!==1||!account(a)||a.localId!==c.sub||
-      typeof a.validSince!=='string'||!/^\d+$/.test(a.validSince)||Number(a.validSince)>c.auth_time)return null;
+   if(!Array.isArray(b?.users)||b.users.length!==1||!account(a)||a.localId!==claims.uid||
+      typeof a.validSince!=='string'||!/^\d{1,16}$/.test(a.validSince)||!Number.isSafeInteger(Number(a.validSince))||Number(a.validSince)>claims.authTime)return null;
    return a.localId;
   },
   async listDevices(uid){
@@ -154,24 +151,31 @@ export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,web
     return {token,time,path:d.name.slice(root.length+1),updateTime:d.updateTime};
    }).filter(x=>x.token.length>=20&&x.token.length<=4096&&x.time>Date.now()-60*86400000&&x.time<=Date.now()+60000);
   },
-  async sendRefresh(message){
+  async sendRefresh(message,expiresAt){
    if(kind!=='tick'||sent||!exact(message,['token','data','android'])||typeof message.token!=='string'||
       message.token.length<20||message.token.length>4096||!exact(message.data,['signal'])||message.data.signal!=='refresh'||
       !exact(message.android,['priority','ttl'])||message.android.priority!=='HIGH'||
       !/^(?:[1-5]\d|60)s$/.test(message.android.ttl))fail();
+   if(!Number.isSafeInteger(expiresAt)||expiresAt-Date.now()<10000)fail();
    sent=true;
-   const r=await service('https://fcm.googleapis.com/v1/projects/'+project+'/messages:send','POST',{message});
+   const t=await token();
+   if(await beforeSend()!==true)fail();
+   const ttl=Math.min(Number.parseInt(message.android.ttl),60,Math.floor((expiresAt-Date.now())/1000));
+   if(ttl<10)fail();
+   const payload={...message,android:{...message.android,ttl:ttl+'s'}};
+   const r=await request('https://fcm.googleapis.com/v1/projects/'+project+'/messages:send','POST',{
+    headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'},body:JSON.stringify({message:payload})});
    return {ok:r.status===200,status:r.status,json:()=>boundedJson(r)};
   },
-  usage:()=>({actualExternalAttempts:attempts,oauthAttempted:oauthStarted,fcmAttempted:sent})
+  usage:()=>({actualExternalAttempts:attempts,oauthAttempted:oauthStarted,fcmAttempted})
  });
 }
 // Private composition only. No fetch default or route registration.
-export function createD1HttpCandidateLab({db,enabled=false,activatedAt,fetchImpl,manualWorker}={}){
+export function createD1HttpCandidateLab({db,enabled=false,activatedAt,fetchImpl,manualWorker,beforeSend}={}){
  function scoped(kind,env){
   let serviceAccount;
   if(enabled===true){try{serviceAccount=JSON.parse(env?.FIREBASE_SERVICE_ACCOUNT_JSON??'null')}catch{serviceAccount=null}}
-  const http=createD1HttpLab({enabled,kind,fetchImpl,serviceAccount,webApiKey:env?.FIREBASE_WEB_API_KEY});
+  const http=createD1HttpLab({enabled,kind,fetchImpl,serviceAccount,webApiKey:env?.FIREBASE_WEB_API_KEY,beforeSend});
   const flow=createMeteredD1Lab({db,enabled,activatedAt,manualWorker,transport:http.transport,
    lookupAccounts:http.lookupAccounts,verifyIdentity:http.verifyIdentity,listDevices:http.listDevices,sendRefresh:http.sendRefresh});
   return {http,flow};
