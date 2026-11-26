@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createD1ReadAuthorizationLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-read-lab.mjs';
+import {D1_OUTBOX_LAB_SCHEMA,createD1OutboxLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-outbox-lab.mjs';
 import {createMeteredScheduledTickLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-scheduled-lab.mjs';
 import {createFreeInvocationMeter} from '../../cloudflare/push-worker/scripts/qa-automatic-free-meter-lab.mjs';
 import {createFreeClaimLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-claim-lab.mjs';
@@ -557,6 +559,73 @@ try{
    await pending.update({expiresAt:expiry});
    assert.equal((await restClaim.claim(typed.eventKey)).status,'ignored');
    assert.equal((await outbox('rest-type-claim').get()).data().state,'pending_transport');
+
+   await t.test('D1 outbox uses only read-only Firestore transactions and real emulator Auth',async()=>{
+    sql.exec(D1_OUTBOX_LAB_SCHEMA);
+    const activatedAt=Date.now()-10000;
+    sql.prepare('INSERT INTO qa_auto_d1_activation_lab VALUES(1,?,1)').run(activatedAt);
+    const bridge={prepare(q){return {bind(...args){return {
+     async run(){const r=sql.prepare(q).run(...args);return {success:true,meta:{changes:r.changes}}},
+     async first(){return sql.prepare(q).get(...args)??null}
+    }}}}};
+    const reads=[];
+    const readonly=async req=>{
+     const suffix=new URL(req.url).pathname.slice(('/v1/'+remote).length);
+     assert.ok([':beginTransaction',':batchGet',':rollback','/users/'+alice+':runQuery','/users/'+bob+':runQuery'].includes(suffix));
+     if(suffix===':beginTransaction')assert.deepEqual(req.body,{options:{readOnly:{}}});
+     reads.push(suffix);
+     return transport(req);
+    };
+    const readAuthorization=createD1ReadAuthorizationLab({transport:readonly,lookupAccounts});
+    const d1=createD1OutboxLab({db:bridge,enabled:true,activatedAt,readAuthorization});
+    const candidateFor=async id=>{
+     await seed(id);
+     const result=await discover({enabled:true,projectId,activatedAt});
+     assert.equal(result.status,'candidate');
+     return result;
+    };
+    const candidate=await candidateFor('d1-real');
+    const start=reads.length,accountsStart=accountLookups;
+    const published=await d1.publish(candidate);
+    assert.equal(published.status,'published_lab',JSON.stringify({published,reads:reads.slice(start)}));
+    assert.equal(reads.length-start,5);assert.equal(accountLookups-accountsStart,2);
+    await absent('d1-real');assert.equal((await pending.get()).exists,false);
+    const c=await d1.claim(published.eventKey);
+    assert.equal(c.status,'claimed_lab');
+    assert.equal((await d1.authorizeClaim(c)).status,'authorized_lab');
+    assert.deepEqual(await d1.readNotice(alice),{status:'notice_lab',conversationId:AUTO_CHAT,messageId:'d1-real',senderUid:bob});
+    assert.equal((await d1.readNotice(bob)).reason,'no_notice');
+    // Authorization changes between D1 claim and transport must close.
+    await d('users/'+bob+'/chatPushAdmission/current').update({status:'revoked'});
+    assert.equal((await d1.authorizeClaim(c)).status,'ignored');
+    assert.equal((await d1.readNotice(alice)).status,'ignored');
+    assert.equal((await d1.finish({...c,outcome:'unknown'})).status,'terminal_lab');
+    assert.equal((await d1.claim(published.eventKey)).reason,'not_pending');
+    await absent('d1-real');assert.equal((await pending.get()).exists,false);
+    // Expiry for the earlier slot is advanced only in SQLite test setup.
+    sql.prepare('UPDATE qa_auto_d1_outbox_lab SET expires_at=? WHERE event_key=?').run(Date.now()-1,published.eventKey);
+    for(const [label,mutate] of [
+     ['blocked',()=>d('users/'+bob+'/blockedMembers/'+alice).set({})],
+     ['mute',()=>d('users/'+alice+'/chatBox/'+AUTO_CHAT).set({muted:true})],
+     ['read',()=>room.update({unreadRequester:0})],
+     ['deleted',id=>room.collection('messages').doc(id).update({deletedForAll:true})],
+     ['auth',()=>auth.updateUser(bob,{disabled:true})],
+     ['manual',()=>pending.set({unread:true,expiresAt:new Date(Date.now()+30000)})],
+     ['legacy',id=>outbox(id).set({state:'unknown'})]
+    ]){
+     const id='d1-denied-'+label,candidate=await candidateFor(id);
+     try{
+      await mutate(id);
+      assert.equal((await d1.publish(candidate)).status,'ignored',label);
+      assert.equal(sql.prepare('SELECT count(*) AS n FROM qa_auto_d1_outbox_lab').get().n,1,label);
+      assert.equal((await receipt(id).get()).exists,false,label);
+      if(label!=='legacy')assert.equal((await outbox(id).get()).exists,false,label);
+      if(label!=='manual')assert.equal((await pending.get()).exists,false,label);
+     }finally{if(label==='auth')await auth.updateUser(bob,{disabled:false})}
+    }
+    assert.ok(reads.length>0);
+    console.log('D1 read authorization lab: '+JSON.stringify({readOnlyRequests:reads.length,firestoreWritesByAdapter:0}));
+   });
 
 
 

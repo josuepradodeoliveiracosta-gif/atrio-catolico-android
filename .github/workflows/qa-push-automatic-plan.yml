@@ -28,6 +28,7 @@ on:
       - 'cloudflare/push-worker/scripts/qa-automatic-free-write-guard-lab.mjs'
       - 'tests/security/qa-automatic-free-write-guard-lab.test.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-d1-outbox-lab.mjs'
+      - 'cloudflare/push-worker/scripts/qa-automatic-d1-read-lab.mjs'
       - 'tests/security/qa-automatic-d1-outbox-lab.test.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-free-flow-lab.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-free-meter-lab.mjs'
