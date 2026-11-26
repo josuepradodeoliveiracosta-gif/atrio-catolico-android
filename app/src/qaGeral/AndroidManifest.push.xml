@@ -3,10 +3,19 @@
     xmlns:tools="http://schemas.android.com/tools">
     <!-- QA Geral Celular com Firebase Messaging, sem instalador OTA. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application android:label="${atrioQaGeralLabel}"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         tools:replace="android:label">
         <provider android:name="androidx.core.content.FileProvider" tools:node="remove" />
+        <!-- Painel QA voluntário; nenhuma coleta ao receber Intent. -->
+        <activity android:name=".QaAndroidDiagnosticsActivity"
+            android:exported="true" android:label="Diagnóstico · QA Geral">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

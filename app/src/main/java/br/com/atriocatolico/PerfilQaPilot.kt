@@ -45,6 +45,7 @@ internal fun perfilQaIdentityAllowed(
 class PerfilQaActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        QaAndroidOpeningProbe.attach(this)
         val app = FirebaseApp.getApps(this).singleOrNull()
         val authorized = app?.name == FirebaseApp.DEFAULT_APP_NAME &&
             perfilQaIdentityAllowed(
