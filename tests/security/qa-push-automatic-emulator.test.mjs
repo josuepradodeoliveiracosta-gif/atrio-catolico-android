@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import {renderConversationPushPilotWorker} from '../../cloudflare/push-worker/scripts/conversation-push-pilot.mjs';
+import {createD1DispatchLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-dispatch-lab.mjs';
 import {createD1ReadAuthorizationLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-read-lab.mjs';
 import {D1_OUTBOX_LAB_SCHEMA,createD1OutboxLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-outbox-lab.mjs';
 import {createMeteredScheduledTickLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-scheduled-lab.mjs';
@@ -623,6 +626,36 @@ try{
       if(label!=='manual')assert.equal((await pending.get()).exists,false,label);
      }finally{if(label==='auth')await auth.updateUser(bob,{disabled:false})}
     }
+    // Reuse actual generated Worker device selection, without changing its
+    // identity boundary or passing the canonical sender as a Firebase user.
+    // The additional exports exist ONLY in this in-memory test module.
+    const generated=renderConversationPushPilotWorker(readFileSync(new URL('../../cloudflare/push-worker/src/index.js',import.meta.url),'utf8'));
+    const {devices:workerDevices}=await import('data:text/javascript;base64,'+Buffer.from(generated+'\nexport {devices};\n').toString('base64'));
+    sql.exec('CREATE TABLE delivered(event_key TEXT PRIMARY KEY,created_at INTEGER NOT NULL)');
+    const sendCandidate=await candidateFor('d1-dispatch');
+    const sent=await d1.publish(sendCandidate);
+    assert.equal(sent.status,'published_lab');
+    let signals=0;
+    // The parent Worker fixture intercepts global fetch and uses the same
+    // emulator Firestore. FCM is deliberately synthetic for this experiment.
+    const dispatch=createD1DispatchLab({enabled:true,db:bridge,outbox:d1,
+     reserveAttempt:budget.reserveTransport,
+     listDevices:uid=>workerDevices('fixture-access-token',uid),
+     sendRefresh:async message=>{
+      signals++;
+      assert.equal(message.token,'synthetic-not-an-fcm-token');
+      assert.deepEqual(message.data,{signal:'refresh'});
+      assert.ok(Number.parseInt(message.android.ttl)<=60);
+      return Response.json({name:'projects/'+projectId+'/messages/synthetic-d1'});
+     }});
+    const delivered=await dispatch(sent.eventKey);
+    assert.equal(delivered.transportStatus,'accepted_simulated',JSON.stringify(delivered));
+    assert.equal(sql.prepare('SELECT state FROM qa_auto_d1_outbox_lab WHERE event_key=?').get(sent.eventKey).state,'accepted_simulated');
+    assert.equal(signals,1);
+    assert.equal((await dispatch(sent.eventKey)).reason,'not_pending');
+    assert.equal(sql.prepare('SELECT event_key FROM delivered').get().event_key,'chat:'+AUTO_CHAT+':d1-dispatch:'+alice);
+    await absent('d1-dispatch');assert.equal((await pending.get()).exists,false);
+    assert.equal((await d1.readNotice(alice)).messageId,'d1-dispatch');
     assert.ok(reads.length>0);
     console.log('D1 read authorization lab: '+JSON.stringify({readOnlyRequests:reads.length,firestoreWritesByAdapter:0}));
    });
