@@ -22,6 +22,8 @@ on:
       - 'tests/security/qa-automatic-free-rest-lab.test.mjs'
       - 'cloudflare/push-worker/scripts/qa-automatic-free-publication-lab.mjs'
       - 'tests/security/qa-automatic-free-publication-lab.test.mjs'
+      - 'cloudflare/push-worker/scripts/qa-automatic-free-budget-lab.mjs'
+      - 'tests/security/qa-automatic-free-budget-lab.test.mjs'
       - 'tests/security/qa-automatic-service-contract.test.mjs'
       - '.github/workflows/qa-push-automatic-plan.yml'
 permissions:
@@ -37,7 +39,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - run: node --test tests/security/qa-push-automatic-plan.test.mjs tests/security/qa-automatic-service-contract.test.mjs tests/security/qa-push-automatic-retry-plan.test.mjs tests/security/qa-automatic-free-discovery.test.mjs tests/security/qa-automatic-free-rest-lab.test.mjs tests/security/qa-automatic-free-publication-lab.test.mjs
+      - run: node --test tests/security/qa-push-automatic-plan.test.mjs tests/security/qa-automatic-service-contract.test.mjs tests/security/qa-push-automatic-retry-plan.test.mjs tests/security/qa-automatic-free-discovery.test.mjs tests/security/qa-automatic-free-rest-lab.test.mjs tests/security/qa-automatic-free-publication-lab.test.mjs tests/security/qa-automatic-free-budget-lab.test.mjs
 
   emulator:
     runs-on: ubuntu-latest

@@ -21,12 +21,13 @@ function stamp(v){
 }
 const millis=v=>v?v.seconds*1000+Math.floor(v.nanoseconds/1e6):NaN;
 const stop=(reason,reads)=>({status:'ignored',reason,reads});
-export function createFreeRestDiscoveryLab({transport}={}){
- if(typeof transport!=='function')throw Error('missing_lab_transport');
+export function createFreeRestDiscoveryLab({transport,reserveDiscovery}={}){
+ if(typeof transport!=='function'||typeof reserveDiscovery!=='function')throw Error('missing_lab_transport_or_budget');
  return async function tick({enabled=false,projectId,activatedAt}={}){
   let reads=0;
   if(enabled!==true)return stop('automation_disabled',reads);
   if(projectId!==project||!time(activatedAt))return stop('invalid_environment',reads);
+  try{if(await reserveDiscovery()!==true)return stop('budget_unavailable',reads)}catch{return stop('budget_unavailable',reads)}
   async function read(path,fieldPaths){
    if(reads>=2)throw Error('read_budget');
    reads++;

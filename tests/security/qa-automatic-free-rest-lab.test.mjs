@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createFreeRestDiscoveryLab} from '../../cloudflare/push-worker/scripts/qa-automatic-free-rest-lab.mjs';
+import {createFreeRestDiscoveryLab as createDiscovery} from '../../cloudflare/push-worker/scripts/qa-automatic-free-rest-lab.mjs';
+const createFreeRestDiscoveryLab=opts=>createDiscovery({reserveDiscovery:async()=>true,...opts});
 const project='atrio-catolico-qa-general',now=1800000000000;
 const root='projects/'+project+'/databases/(default)/documents/';
 const room='chats/qa-nav-alice__qa-nav-bob',alice='qa-nav-alice',bob='qa-nav-bob';
@@ -59,3 +60,5 @@ test('missing room uses one read',async()=>{
  const f=fixture(),tick=createFreeRestDiscoveryLab({transport:async()=>({status:200,body:[{missing:root+room,readTime:iso(now)}]})});
  assert.deepEqual(await tick(f.input),{status:'ignored',reason:'room_missing',reads:1});
 });
+
+test('budget refusal prevents all discovery reads',async()=>{const f=fixture();const tick=createDiscovery({...f,reserveDiscovery:async()=>false});assert.equal((await tick(f.input)).reason,'budget_unavailable');assert.equal(f.requests.length,0)});
