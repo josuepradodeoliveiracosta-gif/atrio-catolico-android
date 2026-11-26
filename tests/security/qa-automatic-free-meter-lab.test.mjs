@@ -21,7 +21,7 @@ test('transport cannot borrow finalization reserve; failed attempts never refund
  const m=createFreeInvocationMeter();
  for(let i=0;i<32;i++)m.beforeHttp('worker',root+'/a/b');
  assert.throws(()=>m.beforeHttp('worker',root+'/a/b'),/qa_free_invocation_budget/);
- m.beforeHttp('finish',root+':commit',{method:'POST',body:{writes:[{}]}});
+ m.beforeHttp('finish',root+':commit',{method:'POST',body:{writes:[{update:{name:'projects/atrio-catolico-qa-general/databases/(default)/documents/a/b'}}]}});
  assert.equal(m.snapshot().finish.writes,1);
  assert.throws(()=>m.charge('finish',{writes:1}),/qa_free_invocation_budget/);
  assert.equal(m.snapshot().worker.requests,32);
@@ -42,4 +42,25 @@ test('preparation stages have independent caps and cannot consume finish allowan
  assert.throws(()=>m.charge('publication',{writes:1}),/qa_free_invocation_budget/);
  m.charge('finish',{requests:3,reads:1,writes:1});
  assert.equal(m.snapshot().finish.writes,1);
+});
+
+test('scheduled meter includes credentials, protects finish and rejects combined phases',()=>{
+ const m=createFreeInvocationMeter({mode:'scheduled'});
+ for(let i=0;i<2;i++)m.beforeHttp('credential','https://oauth2.googleapis.com/token',{method:'POST'});
+ assert.throws(()=>m.beforeHttp('credential','https://oauth2.googleapis.com/token',{method:'POST'}),/qa_free_invocation_budget/);
+ m.charge('discovery',{requests:2,reads:2});m.charge('recovery',{requests:1,reads:1});
+ m.charge('claim',{requests:9,reads:24,writes:1});
+ m.charge('worker',{requests:32,reads:76,writes:5,d1:8});
+ assert.throws(()=>m.charge('publication',{requests:1}),/qa_free_invocation_budget/);
+ m.charge('finish',{requests:4,reads:1,writes:1});
+ assert.equal(Object.values(m.snapshot()).reduce((n,v)=>n+v.requests,0),50);
+ const p=createFreeInvocationMeter({mode:'scheduled'});
+ p.charge('publication',{requests:1});
+ assert.throws(()=>p.charge('claim',{requests:1}),/qa_free_invocation_budget/);
+ assert.throws(()=>p.beforeHttp('credential',root+'/a/b'),/qa_free_invocation_budget/);
+});
+test('rejects cross-project commit and continuation page without pageSize',()=>{
+ const m=createFreeInvocationMeter();
+ assert.throws(()=>m.beforeHttp('claim',root+':commit',{method:'POST',body:{writes:[{update:{name:'projects/prod/databases/(default)/documents/a/b'}}]}}),/qa_free_invocation_budget/);
+ assert.throws(()=>m.beforeHttp('worker',root+'/users/a/pushDevices?pageToken=next'),/qa_free_invocation_budget/);
 });

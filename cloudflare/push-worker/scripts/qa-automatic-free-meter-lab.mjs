@@ -11,7 +11,9 @@ export const FREE_PREPARATION_LIMITS=Object.freeze({
  recovery:Object.freeze({requests:1,reads:1,writes:0,d1:0}),
  publication:Object.freeze({requests:8,reads:24,writes:3,d1:0})
 });
-const allLimits=Object.freeze({...FREE_PREPARATION_LIMITS,...FREE_TRANSPORT_LIMITS});
+const allLimits=Object.freeze({...FREE_PREPARATION_LIMITS,...FREE_TRANSPORT_LIMITS,
+ credential:Object.freeze({requests:2,reads:0,writes:0,d1:0})});
+const transportStages=new Set(['claim','worker','finish']);
 const project='atrio-catolico-qa-general';
 const root='/v1/projects/'+project+'/databases/(default)/documents';
 const keys=['requests','reads','writes','d1'];
@@ -19,6 +21,7 @@ const integer=x=>Number.isSafeInteger(x)&&x>=0;
 const stop=()=>{throw Error('qa_free_invocation_budget')};
 function classify(url,init){
  const u=new URL(url),method=(init.method??'GET').toUpperCase();
+ if(u.username||u.password||u.hash)stop();
  const units={requests:1,reads:0,writes:0,d1:0};
  if(u.origin==='https://oauth2.googleapis.com'&&u.pathname==='/token'&&method==='POST')return units;
  if(u.origin==='https://identitytoolkit.googleapis.com'&&u.pathname==='/v1/projects/'+project+'/accounts:lookup'&&method==='POST')return units;
@@ -34,29 +37,49 @@ function classify(url,init){
   if(!integer(limit)||limit<1||limit>5)stop();
   units.reads=limit;
  }else if(method==='POST'&&suffix===':commit'){
-  if(!Array.isArray(data?.writes)||!data.writes.length||data.writes.length>3)stop();
+  if(!Array.isArray(data?.writes)||!data.writes.length||data.writes.length>3||data.writes.some(w=>!w?.update?.name?.startsWith(root.slice(4)+'/')))stop();
   units.writes=data.writes.length;
  }else if(method==='POST'&&[':beginTransaction',':rollback'].includes(suffix)){
   // Request only.
  }else if(method==='GET'&&suffix.startsWith('/')){
   const page=u.searchParams.get('pageSize');
-  if(page!==null){if(!/^\d+$/.test(page)||Number(page)<1||Number(page)>6||u.searchParams.has('pageToken'))stop();units.reads=Number(page)}
+  if(u.searchParams.has('pageToken'))stop();
+  if(page!==null){if(!/^\d+$/.test(page)||Number(page)<1||Number(page)>6)stop();units.reads=Number(page)}
   else units.reads=1;
  }else if(method==='DELETE'&&suffix.startsWith('/'))units.writes=1;
  else stop();
  return units;
 }
-export function createFreeInvocationMeter(){
+export function createFreeInvocationMeter({mode='laboratory'}={}){
+ if(!['laboratory','scheduled'].includes(mode))stop();
+ let selectedPath=null;
  const used=Object.fromEntries(Object.keys(allLimits).map(s=>[s,Object.fromEntries(keys.map(k=>[k,0]))]));
  function charge(stage,units){
   const cap=allLimits[stage],row=used[stage];
   if(!cap||!units||Object.keys(units).some(k=>!keys.includes(k)))stop();
   for(const k of keys){const n=units[k]??0;if(!integer(n)||row[k]+n>cap[k])stop()}
+  // Scheduled mode may publish OR transport, never both. Protect the
+  // remaining finalization allowance even when earlier calls fail.
+  if(mode==='scheduled'){
+   const path=stage==='publication'?'publish':transportStages.has(stage)?'transport':null;
+   if(path&&selectedPath&&selectedPath!==path)stop();
+   const total=Object.values(used).reduce((n,v)=>n+v.requests,0)+(units.requests??0);
+   const reserved=stage==='finish'||selectedPath==='publish'||path==='publish'?0:
+     FREE_TRANSPORT_LIMITS.finish.requests-used.finish.requests;
+   if(total+reserved>50)stop();
+   if(path)selectedPath=path;
+  }
   for(const k of keys)row[k]+=units[k]??0;
  }
  return Object.freeze({
   charge,
-  beforeHttp(stage,url,init={}){charge(stage,classify(url,init))},
+  beforeHttp(stage,url,init={}){
+   if(stage==='credential'){
+    const u=new URL(url);
+    if(u.origin!=='https://oauth2.googleapis.com'||u.pathname!=='/token'||(init.method??'GET').toUpperCase()!=='POST')stop();
+   }
+   charge(stage,classify(url,init));
+  },
   snapshot:()=>Object.fromEntries(Object.entries(used).map(([s,v])=>[s,{...v}]))
  });
 }
