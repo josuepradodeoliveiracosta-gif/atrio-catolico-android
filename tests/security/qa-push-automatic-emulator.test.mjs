@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createD1ModeLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-mode-lab.mjs';
 import {readFileSync} from 'node:fs';
 import {renderConversationPushPilotWorker} from '../../cloudflare/push-worker/scripts/conversation-push-pilot.mjs';
 import {createD1DispatchLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-dispatch-lab.mjs';
@@ -630,7 +631,7 @@ try{
     // identity boundary or passing the canonical sender as a Firebase user.
     // The additional exports exist ONLY in this in-memory test module.
     const generated=renderConversationPushPilotWorker(readFileSync(new URL('../../cloudflare/push-worker/src/index.js',import.meta.url),'utf8'));
-    const {devices:workerDevices}=await import('data:text/javascript;base64,'+Buffer.from(generated+'\nexport {devices};\n').toString('base64'));
+    const {devices:workerDevices,verifyIdentity:workerVerify,default:manualWorker}=await import('data:text/javascript;base64,'+Buffer.from(generated+'\nexport {devices};\n').toString('base64'));
     sql.exec('CREATE TABLE delivered(event_key TEXT PRIMARY KEY,created_at INTEGER NOT NULL)');
     const sendCandidate=await candidateFor('d1-dispatch');
     const sent=await d1.publish(sendCandidate);
@@ -656,6 +657,44 @@ try{
     assert.equal(sql.prepare('SELECT event_key FROM delivered').get().event_key,'chat:'+AUTO_CHAT+':d1-dispatch:'+alice);
     await absent('d1-dispatch');assert.equal((await pending.get()).exists,false);
     assert.equal((await d1.readNotice(alice)).messageId,'d1-dispatch');
+    // Exercise the generated verifier unchanged. Only external Identity
+    // Toolkit is simulated: exact fixture bearer -> current emulator account.
+    // No claim is trusted as authentication, no real QA token is used.
+    const bearerFor=(uid,project=projectId)=>'Bearer '+Buffer.from('{"alg":"RS256"}').toString('base64url')+'.'+
+     Buffer.from(JSON.stringify({aud:project,iss:'https://securetoken.google.com/'+project,sub:uid})).toString('base64url')+'.fixture-signature';
+    const tokens=new Map([alice,bob].map(uid=>[bearerFor(uid).slice(7),uid]));
+    const previousFetch=globalThis.fetch;
+    globalThis.fetch=async(url,init={})=>{
+     const u=new URL(url);
+     if(u.origin==='https://identitytoolkit.googleapis.com'&&u.pathname==='/v1/accounts:lookup'){
+      const uid=tokens.get(JSON.parse(init.body).idToken);
+      if(!uid)return Response.json({error:{code:401}},{status:401});
+      const a=await auth.getUser(uid);
+      return Response.json({users:[{localId:a.uid,email:a.email,emailVerified:a.emailVerified,disabled:a.disabled}]});
+     }
+     return previousFetch(url,init);
+    };
+    try{
+     const env={PUSH_DB:bridge,PUSH_ENABLED:'true',FIREBASE_WEB_API_KEY:'fixture',FIREBASE_SERVICE_ACCOUNT_JSON:'fixture'};
+     const mode=createD1ModeLab({db:bridge,mode:'automatic',activatedAt,manualWorker,verifyIdentity:workerVerify,
+      readAuthorization,listDevices:uid=>workerDevices('fixture-access-token',uid),reserveAttempt:budget.reserveTransport,
+      sendRefresh:async()=>{throw Error('must not dispatch from HTTP')}});
+     const notice=authorization=>mode.fetch(new Request('https://qa.invalid/notice',{headers:authorization?{Authorization:authorization}:{}}),env);
+     const accepted=await notice(bearerFor(alice));
+     assert.equal(accepted.status,200);assert.equal(accepted.headers.get('cache-control'),'no-store');
+     assert.deepEqual(await accepted.json(),{conversationId:AUTO_CHAT,messageId:'d1-dispatch',senderUid:bob});
+     assert.equal((await notice(bearerFor(bob))).status,404);
+     assert.equal((await notice()).status,401);
+     assert.equal((await notice(bearerFor(alice,'production'))).status,401);
+     assert.equal((await notice(bearerFor(alice)+'invalid')).status,401);
+     assert.equal((await mode.fetch(new Request('https://qa.invalid/event',{method:'POST',headers:{Authorization:bearerFor(bob)}}),env)).status,503);
+     await auth.updateUser(alice,{disabled:true});
+     try{assert.equal((await notice(bearerFor(alice))).status,401)}
+     finally{await auth.updateUser(alice,{disabled:false})}
+     await d('users/'+alice+'/chatBox/'+AUTO_CHAT).set({muted:true});
+     assert.equal((await notice(bearerFor(alice))).status,404);
+    }finally{globalThis.fetch=previousFetch}
+
     assert.ok(reads.length>0);
     console.log('D1 read authorization lab: '+JSON.stringify({readOnlyRequests:reads.length,firestoreWritesByAdapter:0}));
    });
