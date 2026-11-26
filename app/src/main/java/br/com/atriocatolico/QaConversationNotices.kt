@@ -80,9 +80,16 @@ internal object QaConversationNotices {
             )
     }
 
-    private fun signalProblem(message: RemoteMessage): QaReceiptStage? =
-        qaReceiptSignalProblem(message.notification == null && message.data == mapOf("signal" to "refresh"),
-            message.ttl, message.sentTime, System.currentTimeMillis())
+    private fun signalProblem(message: RemoteMessage, trace: QaReceiptDiagnostic.Trace?): QaReceiptStage? {
+        val sent = message.sentTime
+        val now = System.currentTimeMillis()
+        val allowClockSkew = BuildConfig.ATRIO_QA_RECEIPT_CLOCK_SKEW
+        if (allowClockSkew && sent > 0 && now > 0) {
+            trace?.record(QaReceiptStage.CLOCK_COMPARISON, deltaMs = sent - now)
+        }
+        return qaReceiptSignalProblem(message.notification == null && message.data == mapOf("signal" to "refresh"),
+            message.ttl, sent, now, allowClockSkew)
+    }
 
     private fun manager(context: Context): NotificationManager =
         context.getSystemService(NotificationManager::class.java)
@@ -179,7 +186,7 @@ internal object QaConversationNotices {
     }
 
     suspend fun receive(context: Context, message: RemoteMessage, trace: QaReceiptDiagnostic.Trace? = null) {
-        signalProblem(message)?.let { trace?.record(it); return }
+        signalProblem(message, trace)?.let { trace?.record(it); return }
         trace?.record(QaReceiptStage.SIGNAL_VALID)
         withContext(Dispatchers.Main.immediate) {
             try {
@@ -199,7 +206,7 @@ internal object QaConversationNotices {
                 if (!canNotify(context)) {
                     trace?.record(QaReceiptStage.PERMISSION_REJECTED); return@withContext
                 }
-                signalProblem(message)?.let { trace?.record(it); return@withContext }
+                signalProblem(message, trace)?.let { trace?.record(it); return@withContext }
                 if (!QaConversationPushRegistration.mayPresent(context, session.user.uid)) {
                     trace?.record(QaReceiptStage.OPT_IN_REJECTED); return@withContext
                 }

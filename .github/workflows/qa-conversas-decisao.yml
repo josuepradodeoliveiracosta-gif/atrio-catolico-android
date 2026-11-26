@@ -1,7 +1,7 @@
 name: QA Conversas - decisão, relay e transações
 on:
   pull_request:
-    branches: [main]
+    branches: [main, qa/conversas-decisao-20261125]
     paths:
       - 'firebase/qa-general/**'
       - 'cloudflare/push-worker/**'
