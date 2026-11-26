@@ -29,7 +29,7 @@ export function createMeteredD1Lab({db,enabled=false,activatedAt,transport,looku
    }}};
   }};
   const scopedEnv={...env,PUSH_DB:measuredDb};
-  const reserve=createD1DailyBudgetLab({db:measuredDb,enabled:true});
+  const reserve=createD1DailyBudgetLab({db:measuredDb,enabled:true,continuous,activatedAt});
   const measuredTransport=async req=>{meter.chargeExternal();return transport(req)};
   const readAuthorization=createD1ReadAuthorizationLab({transport:measuredTransport,lookupAccounts:async uids=>{
    meter.chargeExternal(uids.length);return lookupAccounts(uids);
