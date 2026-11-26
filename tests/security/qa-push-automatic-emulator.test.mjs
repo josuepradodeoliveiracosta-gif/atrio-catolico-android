@@ -85,6 +85,8 @@ try{
   assert.equal(Object.hasOwn(o,'token'),false);
  });
  await test('active pending defers newer message; expired pending can advance; old receipt not reopened',async()=>{
+  // Simulate a manual receipt: the automatic path must never supersede it.
+  await receipt('one').update({operatorUid:'manual-fixture'});
   await newMessage('two');
   assert.equal((await service.handle(event('two'))).status,'defer');
   await absent('two');
@@ -238,5 +240,39 @@ try{
   assert.equal((await handler(envelope(old.createTime))).status,'ignored');
   await absent('recreated');
   assert.equal((await handler(envelope((await ref.get()).createTime))).status,'published_lab');
+ });
+
+ await test('rapid newer message supersedes only unclaimed automatic publication',async()=>{
+  await seed('rapid-old');const old=await service.handle(event('rapid-old'));
+  assert.equal(old.status,'published_lab');
+  await pause();await newMessage('rapid-new');
+  const fresh=await service.handle(event('rapid-new'));
+  assert.equal(fresh.status,'published_lab');
+  assert.equal((await pending.get()).data().messageId,'rapid-new');
+  assert.equal((await outbox('rapid-old').get()).data().state,'superseded_lab');
+  assert.equal((await receipt('rapid-old').get()).exists,true);
+  assert.equal((await service.claim(old.eventKey)).reason,'not_pending');
+  assert.equal((await service.claim(fresh.eventKey)).status,'claimed_lab');
+  await pause();await newMessage('rapid-third');
+  assert.equal((await service.handle(event('rapid-third'))).status,'defer');
+  assert.equal((await pending.get()).data().messageId,'rapid-new');
+  await absent('rapid-third');
+ });
+ await test('recreated message cannot claim old outbox even with same path',async()=>{
+  await seed('recreate-claim');const pub=await service.handle(event('recreate-claim'));
+  assert.equal(pub.status,'published_lab');
+  await room.collection('messages').doc('recreate-claim').delete();
+  await pause();await newMessage('recreate-claim');
+  assert.equal((await service.claim(pub.eventKey)).status,'ignored');
+ });
+ await test('claim racing newer publication cannot be superseded after reservation',async()=>{
+  await seed('race-old');const pub=await service.handle(event('race-old'));
+  assert.equal(pub.status,'published_lab');
+  // A new message already makes the old one noncanonical, so the old
+  // claim must fail regardless of which transaction wins.
+  await pause();await newMessage('race-new');
+  const [claim,fresh]=await Promise.all([service.claim(pub.eventKey),service.handle(event('race-new'))]);
+  assert.equal(claim.status,'ignored');assert.equal(fresh.status,'published_lab');
+  assert.equal((await outbox('race-old').get()).data().state,'superseded_lab');
  });
 }finally{await deleteApp(app)}

@@ -6,6 +6,8 @@ on:
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-plan.mjs'
       - 'tests/security/qa-push-automatic-plan.test.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-emulator.mjs'
+      - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-retry-plan.mjs'
+      - 'tests/security/qa-push-automatic-retry-plan.test.mjs'
       - 'firebase/qa-geral-celular/pilot/conversation-push-automatic-trigger-lab.mjs'
       - 'tests/security/qa-push-automatic-emulator.test.mjs'
       - 'tests/security/qa-push-automatic-worker-lab.mjs'
@@ -29,7 +31,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - run: node --test tests/security/qa-push-automatic-plan.test.mjs tests/security/qa-automatic-service-contract.test.mjs
+      - run: node --test tests/security/qa-push-automatic-plan.test.mjs tests/security/qa-automatic-service-contract.test.mjs tests/security/qa-push-automatic-retry-plan.test.mjs
 
   emulator:
     runs-on: ubuntu-latest

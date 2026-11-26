@@ -81,7 +81,7 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
           d.data().token.length>0&&Number.isFinite(ms(d.data().updatedAt))),
         receipt:row(receipt),pending:p&&{...p,expiresAt:ms(p.expiresAt)}
       };
-    return {snapshot,now,chat,messageId,eventKey,sender,recipient,pendingRef,receiptRef,outboxRef,outbox};
+    return {snapshot,now,chat,messageId,eventKey,sender,recipient,pendingRef,receiptRef,outboxRef,outbox,creation:message.createTime};
   }
   return Object.freeze({async handle(event){
     if (enabled!==true) return {status:'ignored',reason:'automation_disabled'};
@@ -93,8 +93,39 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
     return db.runTransaction(async tx=>{
       const state=await readState(tx,event,accounts);
       if(!state)return {status:'ignored',reason:'invalid_or_expired_message'};
-      const {snapshot,now,chat,messageId,eventKey,sender,recipient,pendingRef,receiptRef,outboxRef,outbox}=state;
-      const decision=planAutomaticNotice({enabled:true,event,snapshot,now});
+      const {snapshot,now,chat,messageId,eventKey,sender,recipient,pendingRef,receiptRef,outboxRef,outbox,creation}=state;
+      let decision=planAutomaticNotice({enabled:true,event,snapshot,now});
+      let superseded=null;
+      if(decision.status==='defer'&&decision.reason==='active_pending'&&!outbox.exists){
+        const p=snapshot.pending;
+        // Only replace an automatic publication that demonstrably has never
+        // acquired a claim. Manual, claimed, terminal and malformed rows stay protected.
+        if(p.kind==='chat_message'&&p.roundId===identity.roundId&&p.conversationId===chat&&
+           p.senderUid===sender&&allowedId(p.messageId)&&p.messageId!==messageId&&
+           p.senderGeneration===snapshot.admissions[sender]?.generation&&
+           p.recipientGeneration===snapshot.admissions[recipient]?.generation){
+          const oldKey=key(chat,p.messageId);
+          const oldRef=doc('qaPushAutomaticOutbox/'+oldKey);
+          const [oldOut,oldReceipt,oldMessage]=await Promise.all([
+            tx.get(oldRef),tx.get(doc('users/'+recipient+'/chatPushPublicationReceipts/'+oldKey)),
+            tx.get(doc('chats/'+chat+'/messages/'+p.messageId))]);
+          const o=row(oldOut),r=row(oldReceipt),m=row(oldMessage);
+          if(o?.state==='pending_transport'&&!Object.hasOwn(o,'claimId')&&!Object.hasOwn(o,'claimedAt')&&
+             o.roundId===identity.roundId&&o.conversationId===chat&&o.messageId===p.messageId&&
+             o.senderUid===sender&&o.recipientUid===recipient&&
+             o.senderGeneration===p.senderGeneration&&o.recipientGeneration===p.recipientGeneration&&
+             r?.operatorUid==='qa-auto-emulator-only'&&r.roundId===identity.roundId&&
+             r.senderGeneration===p.senderGeneration&&r.recipientGeneration===p.recipientGeneration&&
+             ms(o.expiresAt)===p.expiresAt&&ms(r.expiresAt)===p.expiresAt&&
+             m?.uid===sender&&Number.isSafeInteger(ms(m.createdAt))&&
+             ms(m.createdAt)<snapshot.message.createdAt&&
+             o.messageCreateTime?.seconds===oldMessage.createTime?.seconds&&
+             o.messageCreateTime?.nanoseconds===oldMessage.createTime?.nanoseconds){
+            const candidate=planAutomaticNotice({enabled:true,event,now,snapshot:{...snapshot,pending:null}});
+            if(candidate.status==='candidate'){decision=candidate;superseded=oldRef}
+          }
+        }
+      }
       if (decision.status!=='candidate') return decision;
       if(outbox.exists) return {status:'ignored',reason:'outbox_exists_or_unknown'};
       const n=decision.notice;
@@ -103,13 +134,15 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
         recipientGeneration:n.expectedRecipientGeneration};
       // Same publication receipt key/shape as the manual service. Atomic with outbox.
       // This is an emulator-only experiment, not a new production authority.
+      if(superseded)tx.update(superseded,{state:'superseded_lab',supersededBy:eventKey,finishedAt:serverTimestamp()});
       tx.set(pendingRef,record);
       tx.create(receiptRef,{roundId:identity.roundId,senderGeneration:record.senderGeneration,
         recipientGeneration:record.recipientGeneration,operatorUid:'qa-auto-emulator-only',
         expiresAt:n.expiresAt,createdAt:serverTimestamp()});
       tx.create(outboxRef,{state:'pending_transport',roundId:identity.roundId,conversationId:chat,
         messageId,senderUid:sender,recipientUid:recipient,senderGeneration:record.senderGeneration,
-        recipientGeneration:record.recipientGeneration,expiresAt:n.expiresAt,createdAt:serverTimestamp()});
+        recipientGeneration:record.recipientGeneration,expiresAt:n.expiresAt,createdAt:serverTimestamp(),
+        messageCreateTime:{seconds:creation.seconds,nanoseconds:creation.nanoseconds}});
       return {status:'published_lab',eventKey};
     });
 
@@ -127,10 +160,11 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
       const entry=await tx.get(ref),o=row(entry),now=ms(entry.readTime);
       if(!o||o.state!=='pending_transport')return {status:'ignored',reason:'not_pending'};
       if(o.roundId!==identity.roundId||o.conversationId!==AUTO_CHAT||!allowedId(o.messageId)||
-          key(o.conversationId,o.messageId)!==eventKey||!Number.isSafeInteger(now))
+          key(o.conversationId,o.messageId)!==eventKey||!Number.isSafeInteger(now)||
+          !Number.isSafeInteger(o.messageCreateTime?.seconds)||!Number.isInteger(o.messageCreateTime?.nanoseconds))
         return {status:'ignored',reason:'invalid_outbox'};
       const event={type:'created',projectId:identity.projectId,databaseId:identity.databaseId,
-        chatId:o.conversationId,messageId:o.messageId};
+        chatId:o.conversationId,messageId:o.messageId,expectedCreateTime:o.messageCreateTime};
       const state=await readState(tx,event,accounts);
       if(!state)return {status:'ignored',reason:'canonical_missing'};
       const {snapshot,sender,recipient}=state,p=snapshot.pending,r=snapshot.receipt;
