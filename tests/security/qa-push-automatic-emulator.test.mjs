@@ -533,6 +533,31 @@ try{
    assert.equal((await restClaim.claim(uncertain.eventKey)).reason,'not_pending');
    await outbox('rest-claim-ambiguous').update({expiresAt:new Date(Date.now()-1)});
    assert.equal((await restClaim.expireClaim(uncertain.eventKey)).status,'unknown');
+   // Firestore stores integers and timestamps as distinct value types.
+   // Mutate AFTER discovery to exercise the transactional decoder, not
+   // just the stricter discovery adapter.
+   for(const [label,mutate] of [
+    ['grant-time',async()=>d('users/'+bob+'/chatPushAdmission/current').update({admittedAt:Date.now()-5000})],
+    ['proof-expiry',async()=>d('users/'+alice+'/chatAgeEligibility/current').update({reviewExpiresAt:Date.now()+300000})],
+    ['room-unread',async()=>room.update({unreadRequester:new Date(1000)})],
+    ['pilot-expiry',async()=>d('app_config/conversations').update({'pushPilot.expiresAt':Date.now()+300000})],
+    ['device-time',async()=>d('users/'+alice+'/pushDevices/fake').update({updatedAt:Date.now()})],
+    ['message-time',async id=>room.collection('messages').doc(id).update({createdAt:Date.now()})]
+   ]){
+    const id='rest-type-'+label;await seed(id);
+    const candidate=await discover(input);assert.equal(candidate.status,'candidate');
+    await mutate(id);
+    assert.equal((await publish({enabled:true,candidate})).status,'ignored',label);
+    await absent(id);assert.equal((await pending.get()).exists,false,label);
+   }
+   await seed('rest-type-claim');
+   const typed=await publish({enabled:true,candidate:await discover(input)});
+   assert.equal(typed.status,'published_lab');
+   const expiry=(await pending.get()).data().expiresAt.toMillis();
+   await pending.update({expiresAt:expiry});
+   assert.equal((await restClaim.claim(typed.eventKey)).status,'ignored');
+   assert.equal((await outbox('rest-type-claim').get()).data().state,'pending_transport');
+
 
 
   }finally{sql.close()}

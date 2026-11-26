@@ -19,20 +19,53 @@ function stamp(v){
 }
 const ms=s=>{const t=stamp(s);return t?t.seconds*1000+Math.floor(t.nanoseconds/1e6):NaN};
 const fail=()=>{throw Error('invalid_lab_snapshot')};
+// Firestore integerValue and timestampValue must never become interchangeable
+// authorization values just because both normalize to a JavaScript number.
+const timestamps=new Set(['createdAt','updatedAt','admittedAt','reviewExpiresAt','expiresAt','claimedAt','finishedAt']);
+const integers=new Set(['minimumAge','unreadRequester','unreadRecipient','seconds','nanoseconds']);
+const booleans=new Set(['enabled','qaSimpleDirectEnabled','minorPolicyApproved','muted','unread']);
+const strings=new Set(['uid','kind','status','lastMessageId','lastSenderUid','requesterUid','recipientUid',
+ 'version','safetyReviewVersion','projectId','databaseId','roundId','ageMode','email','generation',
+ 'policyVersion','token','state','conversationId','messageId','senderUid','recipientUid',
+ 'senderGeneration','recipientGeneration','operatorUid','claimId','supersededBy']);
+const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
+const scalar=(v,k)=>object(v)&&Object.keys(v).length===1&&Object.hasOwn(v,k);
 function fields(f){
- if(!f||typeof f!=='object'||Array.isArray(f))fail();
- return Object.fromEntries(Object.entries(f).map(([k,v])=>[k,value(v)]));
+ if(!object(f))fail();
+ return Object.fromEntries(Object.entries(f).map(([k,v])=>[k,value(v,k)]));
 }
-function value(v){
- if(!v||typeof v!=='object'||Object.keys(v).length!==1)fail();
- if(Object.hasOwn(v,'nullValue')&&v.nullValue===null)return null;
- if(typeof v.stringValue==='string')return v.stringValue;
- if(typeof v.booleanValue==='boolean')return v.booleanValue;
- if(typeof v.integerValue==='string'&&/^-?\d+$/.test(v.integerValue)&&Number.isSafeInteger(Number(v.integerValue)))return Number(v.integerValue);
- if(typeof v.timestampValue==='string'&&Number.isSafeInteger(ms(v.timestampValue)))return ms(v.timestampValue);
- if(v.mapValue)return fields(v.mapValue.fields??{});
- if(v.arrayValue)return (v.arrayValue.values??[]).map(value);
- // Unused field types must not turn into an authorization value.
+function value(v,k){
+ if(timestamps.has(k)){
+  if(k==='expiresAt'&&scalar(v,'nullValue')&&v.nullValue===null)return null;
+  if(!scalar(v,'timestampValue')||!Number.isSafeInteger(ms(v.timestampValue)))fail();
+  return ms(v.timestampValue);
+ }
+ if(integers.has(k)){
+  if(!scalar(v,'integerValue')||typeof v.integerValue!=='string'||
+     !/^-?\d+$/.test(v.integerValue)||!Number.isSafeInteger(Number(v.integerValue)))fail();
+  return Number(v.integerValue);
+ }
+ if(booleans.has(k)){
+  if(!scalar(v,'booleanValue')||typeof v.booleanValue!=='boolean')fail();
+  return v.booleanValue;
+ }
+ if(strings.has(k)){
+  if(!scalar(v,'stringValue')||typeof v.stringValue!=='string')fail();
+  return v.stringValue;
+ }
+ if(k==='pushPilot'||k==='messageCreateTime'){
+  if(!scalar(v,'mapValue')||!object(v.mapValue)||!object(v.mapValue.fields))fail();
+  return fields(v.mapValue.fields);
+ }
+ if(k==='participants'){
+  if(!scalar(v,'arrayValue')||!Array.isArray(v.arrayValue?.values))fail();
+  return v.arrayValue.values.map(x=>{
+   if(!scalar(x,'stringValue')||typeof x.stringValue!=='string')fail();
+   return x.stringValue;
+  });
+ }
+ // Preserve presence, including deletedForAll and extra eligibility fields,
+ // without traversing unused content or coercing unknown values.
  return undefined;
 }
 // Decode only fields used by the pure decision for large room/message docs.
@@ -64,7 +97,7 @@ export function createFreeSnapshotLab({transport,lookupAccounts}={}){
    for(const row of rows){
     readTime(row);
     const found=Object.hasOwn(row,'found'),missing=Object.hasOwn(row,'missing');
-    if(found===missing)fail();
+    if(found===missing||Object.hasOwn(row,'error'))fail();
     const name=found?row.found?.name:row.missing;
     if(!names.includes(name)||result.has(name))fail();
     const doc=found?row.found:null;
@@ -119,6 +152,7 @@ export function createFreeSnapshotLab({transport,lookupAccounts}={}){
   const seen=new Set();
   for(const r of devices){
    readTime(r);
+   if(Object.hasOwn(r,'error'))fail();
    if(!r.document)continue;
    const name=r.document.name,prefix=root+'/'+user+'/pushDevices/';
    if(typeof name!=='string'||!name.startsWith(prefix)||!id(name.slice(prefix.length))||seen.has(name)||++count>5)fail();
