@@ -54,7 +54,7 @@ const localName=(from,spec)=>{
  check(!dest.startsWith('../')&&!posix.isAbsolute(dest)&&/\.(?:mjs|js)$/.test(dest),'import_outside_package');
  return dest;
 };
-export function assembleProbeModules(original){
+function assembleHostedModules(original,automatic=false){
  // Compile only, never link/evaluate downloaded code. Every static dependency
  // must resolve to the pinned baseline or the separately reviewed probe graph.
  check(typeof SourceTextModule==='function','requires_experimental_vm_modules');
@@ -72,24 +72,47 @@ export function assembleProbeModules(original){
   check(!original.has(name)&&/^(?:cloudflare\/push-worker\/scripts\/qa-automatic-[A-Za-z0-9-]+|firebase\/qa-geral-celular\/pilot\/conversation-push-[A-Za-z0-9-]+)\.mjs$/.test(name),'probe_import_outside_scope');
   const path=realpathSync(resolve(repo,name)),rel=relative(repo,path);
   check(!rel.startsWith('..')&&!isAbsolute(rel)&&rel.split('\\').join('/')===name,'probe_path_invalid');
-  const content=readFileSync(path,'utf8');
+  let content=readFileSync(path,'utf8');
+  // Only the automatic relay's import is redirected to the byte-identical
+  // hosted relay. Do not bring the newer Node-dependent QA API into this QA.
+  if(automatic&&name==='cloudflare/push-worker/scripts/qa-automatic-d1-relay-candidate.mjs'){
+   const anchor="import {createQaRelay} from '../src/qa-geral.js';";
+   check(content.split(anchor).length===2&&original.has('qa-geral.js'),'hosted_relay_anchor');
+   content=content.replace(anchor,"import {createQaRelay} from '../../../qa-geral.js';");
+  }
   check(!/\b(?:process|Buffer|require|setInterval)\s*[.(]/.test(content),'non_web_runtime');
   modules.set(name,content);
-  for(const dep of imports(name,content))add(dep);
+  for(const dep of imports(name,content)){
+   if(original.has(dep)){check(automatic&&name==='cloudflare/push-worker/scripts/qa-automatic-d1-relay-candidate.mjs'&&dep==='qa-geral.js','unexpected_baseline_dependency');continue}
+   add(dep);
+  }
  }
- add(probe);
- check(!modules.has(main),'main_collision');
- const wrapper=[
+ const relay='cloudflare/push-worker/scripts/qa-automatic-d1-relay-candidate.mjs';
+ const scheduler='cloudflare/push-worker/scripts/qa-automatic-d1-scheduled-candidate.mjs';
+ if(automatic){add(relay);add(scheduler)}else add(probe);
+ const entry=automatic?'automatic-entry.mjs':main;
+ check(!modules.has(entry),'main_collision');
+ const wrapper=(automatic?[
+ "import manualWorker from './worker.mjs';",
+ "import {createQaAutomaticCandidateRelay} from './"+relay+"';",
+ "import {createQaScheduledCandidate} from './"+scheduler+"';",
+ "const candidate=createQaAutomaticCandidateRelay({manualWorker,fetchImpl:(...args)=>fetch(...args)});",
+ "const scheduled=createQaScheduledCandidate({candidate,report:r=>console.info({event:'qa_auto_schedule',...r})});",
+ "export default {fetch:(request,env)=>candidate.fetch(request,env),scheduled:(controller,env)=>scheduled(controller,env)};",
+ ""
+ ]:[
  "import baseline from './entry.mjs';",
  "import {createQaProbeScheduledLab} from './"+probe+"';",
  "const scheduled=createQaProbeScheduledLab({fetchImpl:(...args)=>fetch(...args),report:r=>console.info({event:'qa_identity_probe',...r})});",
  "export default {fetch:(request,env,ctx)=>baseline.fetch(request,env,ctx),scheduled:(controller,env)=>scheduled(controller,env)};",
  ""
- ].join('\n');
- for(const dep of imports(main,wrapper))check(modules.has(dep),'wrapper_dependency_missing');
- modules.set(main,wrapper);
+ ]).join('\n');
+ for(const dep of imports(entry,wrapper))check(modules.has(dep),'wrapper_dependency_missing');
+ modules.set(entry,wrapper);
  return modules;
 }
+export function assembleProbeModules(original){return assembleHostedModules(original)}
+export function assembleHostedAutomaticModules(original){return assembleHostedModules(original,true)}
 export function prepareHostedProbePackage(input,out){
  const file=resolve(input),dest=resolve(out);
  check(statSync(file).isFile()&&statSync(file).size<=2*1024*1024,'snapshot_size');
