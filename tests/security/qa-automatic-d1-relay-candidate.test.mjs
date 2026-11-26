@@ -168,7 +168,7 @@ test('continuous scheduled relay sends one synthetic refresh, reads notice, and 
  assert.equal(n.status,200);assert.deepEqual(await n.json(),{conversationId:chat,messageId:'continuous-fixture',senderUid:bob});
  assert.equal(sql.prepare('SELECT state FROM qa_auto_d1_outbox_lab').get().state,'accepted_simulated');
  assert.equal(sql.prepare('SELECT count(*) AS n FROM delivered').get().n,1);
- assert.deepEqual(sql.prepare('SELECT discovery,work,notice FROM qa_auto_d1_budget_lab').get(),{discovery:1,work:1,notice:1});
+ assert.deepEqual({...sql.prepare('SELECT discovery,work,notice FROM qa_auto_d1_budget_lab').get()},{discovery:1,work:1,notice:1});
  const before=calls.length;sql.exec('UPDATE qa_auto_d1_continuous_epoch SET enabled=0');
  assert.equal((await candidate.fetch(validNotice(),env)).status,503);
  assert.equal((await candidate.tick(env)).result.reason,'trial_unavailable');
