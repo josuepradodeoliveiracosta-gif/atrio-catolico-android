@@ -17,6 +17,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import java.util.UUID
+import java.net.URL
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -113,19 +114,21 @@ internal class AtrioManagedBlocks(
 internal fun rememberAtrioManagedBlocks(
     auth: FirebaseAuth, user: FirebaseUser, db: FirebaseFirestore
 ): AtrioManagedBlocks? = remember(auth, user, db) {
-    if (!isAtrioManagedInboxQa(db)) null else {
-        val service = AtrioInboxBlockHttp(token = { atrioQaInboxToken(auth, user) })
+    val base = atrioManagedInboxBase(db)
+    if (base == null) null else {
+        val service = AtrioInboxBlockHttp(token = { atrioQaInboxToken(auth, user) },
+            baseUrl = URL(base, "blocks/"))
         AtrioManagedBlocks({ auth.currentUser === user }, service)
     }
 }
 
 internal fun isAtrioManagedInboxQa(db: FirebaseFirestore): Boolean =
-    BuildConfig.ATRIO_QA_INBOX_DISCOVERY && !BuildConfig.ATRIO_QA_GERAL_REMOTE &&
-        db.app.options.projectId == "demo-atrio-v11" &&
-        db.firestoreSettings.host == "127.0.0.1:8089" && !db.firestoreSettings.isSslEnabled
+    atrioManagedInboxBase(db) != null
 
 internal suspend fun atrioQaInboxToken(auth: FirebaseAuth, user: FirebaseUser): String? {
     if (auth.currentUser !== user) return null
+    if (BuildConfig.ATRIO_QA_GERAL_REMOTE &&
+        !qaGeralPushIdentityMatches(user.uid, user.email, user.isEmailVerified)) return null
     return suspendCancellableCoroutine { continuation ->
         user.getIdToken(false).addOnCompleteListener { task ->
             if (continuation.isActive) continuation.resume(

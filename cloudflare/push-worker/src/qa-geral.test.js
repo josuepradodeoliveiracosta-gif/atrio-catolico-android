@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generateKeyPairSync} from 'node:crypto';
-import qaWorker from './qa-geral.js';
+import qaWorker, {createQaRelay} from './qa-geral.js';
 
 const qaProject = 'atrio-catolico-qa-general';
 const qaService = 'atrio-qa-general-push@' + qaProject + '.iam.gserviceaccount.com';
@@ -144,4 +144,64 @@ test('resposta gera FCM apenas ao dispositivo de Bob, no projeto QA', async t =>
   assert.deepEqual(await stopped.json(), {status:'ignored'});
   assert.equal(fcm.length,1);
 
+});
+
+test('rota de decisão fechada por padrão e restrita a identidade QA verificada', async t => {
+  const route='/v1/qa/conversations/chats/qa-nav-alice__qa-nav-bob/decision';
+  const now=Math.floor(Date.now()/1000);
+  const claims={aud:qaProject,iss:'https://securetoken.google.com/'+qaProject,
+    sub:alice.localId,email:alice.email,email_verified:true,
+    auth_time:now-100,iat:now-5,exp:now+600,firebase:{sign_in_provider:'password'}};
+  const signed=(project,extra={})=>base64({alg:'RS256'})+'.'+base64({
+    ...claims,aud:project,iss:'https://securetoken.google.com/'+project,...extra
+  })+'.synthetic-signature';
+  const request=(project,extra={})=>new Request('https://qa.invalid'+route,{
+    method:'POST',headers:{Authorization:'Bearer '+signed(project,extra)}
+  });
+  let account={...alice,emailVerified:false,validSince:String(now-100)};
+  const auth=t.mock.method(globalThis,'fetch',async(url,options)=>{
+    assert.equal(new URL(url).hostname,'identitytoolkit.googleapis.com');
+    assert.equal(options.redirect,'error');
+    assert.equal(typeof JSON.parse(options.body).idToken,'string');
+    return Response.json({users:[account]});
+  });
+  let forwarded=0;
+  const relay=createQaRelay(null,{async fetch(req,context){
+    forwarded++;
+    assert.equal(new URL(req.url).pathname,route);
+    assert.equal(context.uid,alice.localId);
+    assert.equal(context.project,qaProject);
+    return Response.json({committed:true});
+  }});
+  assert.equal((await relay.fetch(request(qaProject),qaConfig)).status,503);
+  assert.equal(auth.mock.callCount(),0);
+  const env={...qaConfig,QA_CONVERSATIONS_API_ENABLED:'true'};
+  assert.equal((await relay.fetch(request('atrio-catolico'),env)).status,403);
+  assert.equal(auth.mock.callCount(),0);
+  assert.equal((await relay.fetch(request(qaProject),env)).status,403);
+  assert.equal(forwarded,0);
+  for(const invalid of [
+    {...alice,validSince:String(now-99)}, // refreshed token from revoked sign-in
+    {...alice}, {...alice,validSince:'malformed'},
+    {...alice,validSince:String(now-100),disabled:true},
+    {...alice,validSince:String(now-100),localId:bob},
+  ]){
+    account=invalid;
+    assert.equal((await relay.fetch(request(qaProject),env)).status,403);
+  }
+  account={...alice,validSince:String(now-100)};
+  const lookups=auth.mock.callCount();
+  for(const invalid of [{exp:now-1},{iat:now+1},{auth_time:now+2},
+    {sub:bob},{email_verified:false},{firebase:{sign_in_provider:'anonymous'}}]){
+    assert.equal((await relay.fetch(request(qaProject,invalid),env)).status,403);
+  }
+  assert.equal(auth.mock.callCount(),lookups);
+  assert.equal(forwarded,0);
+  const allowed=await relay.fetch(request(qaProject),env);
+  assert.equal(allowed.status,200);
+  assert.match(allowed.headers.get('cache-control'),/no-store/);
+  assert.equal(forwarded,1);
+  account={...alice,validSince:String(now-99)};
+  assert.equal((await relay.fetch(request(qaProject),env)).status,403);
+  assert.equal(forwarded,1,'revocation must be checked on every operation');
 });

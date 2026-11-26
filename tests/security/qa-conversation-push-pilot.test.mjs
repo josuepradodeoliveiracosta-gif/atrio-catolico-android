@@ -88,6 +88,7 @@ async function assertNotice(fixture, expected=200, messageId=pilot.messageId) {
 }
 
 function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{},
+  oauthResponse=()=>Response.json({access_token:'fixture-access-token',expires_in:3600}),
   fcmResponse=()=>Response.json({name:'projects/'+pilot.projectId+'/messages/'+androidFcmMessageId}),
 }={}) {
   const accounts=Object.fromEntries(Object.entries(pilot.accounts).map(([uid,email])=>
@@ -118,11 +119,11 @@ function useExternalFixtures(t,{changeAuth=()=>{},afterReservation=async()=>{},
   const network=t.mock.method(globalThis,'fetch',async (input,init={})=>{
     cloudCalls++;
     const url=new URL(input);
-    assert.equal(init.redirect,'error');
+    assert.equal(init.redirect,'manual');
     const headers=new Headers(init.headers);
     if (url.origin==='https://oauth2.googleapis.com' && url.pathname==='/token') {
       assert.match(String(init.body),/assertion=/);
-      return Response.json({access_token:'fixture-access-token',expires_in:3600});
+      return oauthResponse();
     }
     if (url.origin==='https://identitytoolkit.googleapis.com'
         && url.pathname==='/v1/accounts:lookup') {
@@ -218,6 +219,47 @@ test('mesmos documentos para Rules e Worker de Conversas do piloto DM #199',asyn
         else batch.set(ref,data);
       }
       await batch.commit();
+    });
+  }
+
+  await t.test('diagnóstico de falha OAuth é sanitizado e conserva HTTP 503',async sub=>{
+    await seed();
+    const fresh=(await import('data:text/javascript;base64,'+
+      Buffer.from(workerSource+'\n// fresh diagnostic fixture').toString('base64'))).default;
+    const fixture=useExternalFixtures(sub,{
+      oauthResponse:()=>Response.json({error:'fixture-secret-must-not-leak'},{status:400}),
+    });
+    const warnings=sub.mock.method(console,'warn',()=>{});
+    const result=await fresh.fetch(requestNotice(),fixture.env);
+    assert.equal(result.status,503);
+    assert.deepEqual(await result.json(),{status:'notice_unavailable'});
+    assert.deepEqual(warnings.mock.calls.map(call=>call.arguments[0]),[
+      {event:'qa_push_diagnostic',stage:'oauth_http',status:400},
+      {event:'qa_push_diagnostic',stage:'notice_oauth',status:0},
+    ]);
+    assert.equal(fixture.stats().reserved,0);
+    assert.equal(fixture.stats().sent,0);
+  });
+
+  for (const status of [301,302,303,307,308]) {
+    await t.test('redirecionamento OAuth '+status+' recusado sem reenvio',async sub=>{
+      await seed();
+      const fresh=(await import('data:text/javascript;base64,'+
+        Buffer.from(workerSource+'\n// redirect fixture '+status).toString('base64'))).default;
+      const fixture=useExternalFixtures(sub,{
+        oauthResponse:()=>new Response(null,{status,headers:{Location:'https://outside.invalid/must-not-follow'}}),
+      });
+      const warnings=sub.mock.method(console,'warn',()=>{});
+      const result=await fresh.fetch(requestNotice(),fixture.env);
+      assert.equal(result.status,503);
+      assert.deepEqual(await result.json(),{status:'notice_unavailable'});
+      assert.deepEqual(warnings.mock.calls.map(call=>call.arguments[0]),[
+        {event:'qa_push_diagnostic',stage:'oauth_http',status},
+        {event:'qa_push_diagnostic',stage:'notice_oauth',status:0},
+      ]);
+      assert.equal(fixture.stats().cloudCalls,2);
+      assert.equal(fixture.stats().reserved,0);
+      assert.equal(fixture.stats().sent,0);
     });
   }
 

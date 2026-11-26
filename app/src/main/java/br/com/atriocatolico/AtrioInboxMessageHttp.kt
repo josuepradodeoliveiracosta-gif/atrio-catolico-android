@@ -25,6 +25,9 @@ internal sealed interface AtrioMessageReply {
     data object Pending : AtrioMessageReply
 }
 
+internal data class AtrioDecisionIntent(val key: String, val chatId: String, val status: String)
+internal enum class AtrioDecisionReply { Committed, Conflict, Rejected, Pending }
+
 internal class AtrioInboxMessageHttp(
     private val token: suspend () -> String?,
     private val baseUrl: URL = URL("http://127.0.0.1:8091/v1/qa/conversations/"),
@@ -73,6 +76,51 @@ internal class AtrioInboxMessageHttp(
                 AtrioMessageReply.Pending
             } catch (_: JSONException) {
                 AtrioMessageReply.Pending
+            } finally {
+                connection?.disconnect()
+            }
+        }
+    }
+
+    suspend fun submitDecision(intent: AtrioDecisionIntent): AtrioDecisionReply {
+        if (!chatPattern.matches(intent.chatId) || intent.status !in listOf("accepted", "declined"))
+            return AtrioDecisionReply.Rejected
+        val bearer = token()?.takeIf { it.isNotBlank() } ?: return AtrioDecisionReply.Pending
+        val payload = JSONObject().put("status", intent.status).toString().toByteArray(Charsets.UTF_8)
+        return withContext(Dispatchers.IO) {
+            var connection: HttpURLConnection? = null
+            try {
+                val call = (URL(baseUrl, "chats/${intent.chatId}/decision")
+                    .openConnection(Proxy.NO_PROXY) as HttpURLConnection).also { connection = it }
+                call.instanceFollowRedirects = false
+                call.useCaches = false
+                call.connectTimeout = 4_000
+                call.readTimeout = readTimeoutMs
+                call.requestMethod = "POST"
+                call.doOutput = true
+                call.setFixedLengthStreamingMode(payload.size)
+                call.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                call.setRequestProperty("Accept", "application/json")
+                call.setRequestProperty("Authorization", "Bearer $bearer")
+                call.setRequestProperty("Idempotency-Key", intent.key)
+                call.setRequestProperty("Cache-Control", "no-store")
+                call.outputStream.use { it.write(payload) }
+                when (call.responseCode) {
+                    200 -> {
+                        val body = readInboxJson(call.inputStream)
+                        if (body?.opt("committed") == true && body.opt("chatId") == intent.chatId &&
+                            body.opt("status") == intent.status) AtrioDecisionReply.Committed
+                        else AtrioDecisionReply.Pending
+                    }
+                    409 -> AtrioDecisionReply.Conflict
+                    408, 429, in 500..599 -> AtrioDecisionReply.Pending
+                    in 400..499 -> AtrioDecisionReply.Rejected
+                    else -> AtrioDecisionReply.Pending
+                }
+            } catch (_: IOException) {
+                AtrioDecisionReply.Pending
+            } catch (_: JSONException) {
+                AtrioDecisionReply.Pending
             } finally {
                 connection?.disconnect()
             }

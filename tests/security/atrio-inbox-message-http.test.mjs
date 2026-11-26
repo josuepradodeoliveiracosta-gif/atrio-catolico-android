@@ -43,6 +43,7 @@ const root='/v1/qa/conversations';
 const requestPath=peer=>root+'/requests/'+peer;
 const messages=chatId=>root+'/chats/'+chatId+'/messages';
 const blocks=peer=>root+'/blocks/'+peer;
+const decisions=chatId=>root+'/chats/'+chatId+'/decision';
 const receipts=()=>db.collection('serverInboxMessageRequests').get();
 const cfg=db.doc('app_config/conversations');
 const validCfg={enabled:true,minorPolicyApproved:true,safetyReviewVersion:'2026-11-safety-v1',version:'2026-11-v1'};
@@ -254,8 +255,32 @@ try{
     await assertFails(setDoc(doc(client,proof),{fingerprint:'fake'}));
   });
 
-  // Aceite sintético por escritor confiável, fora das rotas desta etapa.
-  await acceptFixture(ab);
+  await check('aceite explícito só pelo destinatário, atômico e idempotente',async()=>{
+    const key=randomUUID(),payload={status:'accepted'};
+    const before=await persistedState(a,b,ab);
+    for(const actor of [a,c,stranger,unverified])
+      assert.deepEqual(await write(actor,decisions(ab),payload),denied);
+    assert.deepEqual(await write(b,decisions(ab),{status:'accepted',uid:a}),
+      rejected(400,'invalid_request'));
+    assert.deepEqual(await persistedState(a,b,ab),before);
+    assert.equal((await block(a,b,'PUT')).status,200);
+    assert.deepEqual(await write(b,decisions(ab),payload,key),denied);
+    assert.equal((await block(a,b,'DELETE')).status,200);
+    const results=await Promise.all([write(b,decisions(ab),payload,key),write(b,decisions(ab),payload,key)]);
+    assert.deepEqual(results.map(v=>v.status),[200,200]);
+    assert.deepEqual(results.map(v=>v.body.replayed).sort(),[false,true]);
+    assert.equal((await room(ab).get()).get('status'),'accepted');
+    assert.equal((await room(ab).collection('messages').get()).size,1);
+    for(const [owner,peer] of [[a,b],[b,a]]){
+      const view=await db.doc('users/'+owner+'/chatInboxByPeer/'+peer+'/entries/'+ab).get();
+      assert.equal(view.get('status'),'accepted');
+      assert.equal((await traversal(owner)).find(item=>item.chatId===ab)?.status,'accepted');
+    }
+    assert.deepEqual(await write(b,decisions(ab),{status:'declined'},key),
+      rejected(409,'message_operation_conflict'));
+    assert.deepEqual(await write(b,decisions(ab),{status:'declined'}),
+      rejected(409,'conversation_state_changed'));
+  });
 
   let lastKey;
   await check('envio confirma conteúdo, resposta e contadores mantendo a ordem e o cursor válidos',async()=>{
@@ -395,6 +420,22 @@ try{
       }
     });
   }
+
+  await check('recusa explícita não permite envio nem reabertura',async()=>{
+    const target=id(c,l),source=await room(target).get();
+    const recipient=source.get('recipientUid'),sender=source.get('requesterUid');
+    const key=randomUUID(),payload={status:'declined'};
+    const result=await write(recipient,decisions(target),payload,key);
+    assert.equal(result.status,200);
+    assert.equal((await room(target).get()).get('status'),'declined');
+    assert.equal((await room(target).collection('messages').get()).size,1);
+    assert.deepEqual((await write(recipient,decisions(target),payload,key)).body,
+      {...result.body,replayed:true});
+    assert.deepEqual(await write(sender,messages(target),{text:'Não enviar'}),
+      rejected(409,'conversation_not_accepted'));
+    assert.deepEqual(await write(recipient,decisions(target),{status:'accepted'}),
+      rejected(409,'conversation_state_changed'));
+  });
 
   await check('revogação real impede nova escrita e replay de envio',async()=>{
     const before=(await room(ab).collection('messages').get()).size;

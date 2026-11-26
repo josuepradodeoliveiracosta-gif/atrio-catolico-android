@@ -80,12 +80,9 @@ internal object QaConversationNotices {
             )
     }
 
-    private fun validSignal(message: RemoteMessage): Boolean {
-        val ttl = message.ttl
-        val sent = message.sentTime
-        return message.notification == null && message.data == mapOf("signal" to "refresh") &&
-            ttl in 1..60 && sent > 0 && System.currentTimeMillis() - sent in 0..ttl * 1000L
-    }
+    private fun signalProblem(message: RemoteMessage): QaReceiptStage? =
+        qaReceiptSignalProblem(message.notification == null && message.data == mapOf("signal" to "refresh"),
+            message.ttl, message.sentTime, System.currentTimeMillis())
 
     private fun manager(context: Context): NotificationManager =
         context.getSystemService(NotificationManager::class.java)
@@ -143,8 +140,11 @@ internal object QaConversationNotices {
             null
         }
 
-    private suspend fun pending(token: String): JSONObject? = withContext(Dispatchers.IO) {
-        val body = transport?.read(token) ?: return@withContext null
+    private suspend fun pending(token: String, trace: QaReceiptDiagnostic.Trace?): JSONObject? =
+        withContext(Dispatchers.IO) {
+        val body = transport?.readDiagnosed(token, { status ->
+            trace?.record(QaReceiptStage.HTTP_RESPONSE, status)
+        }) ?: return@withContext null
         try {
             JSONObject(body)
         } catch (_: JSONException) {
@@ -152,41 +152,61 @@ internal object QaConversationNotices {
         }
     }
 
-    private suspend fun read(session: Session): Event? {
-        if (!current(session)) return null
+    private suspend fun read(session: Session, trace: QaReceiptDiagnostic.Trace? = null): Event? {
+        fun rejected(stage: QaReceiptStage): Event? { trace?.record(stage); return null }
+        if (!current(session)) return rejected(QaReceiptStage.SESSION_REJECTED)
         val uid = session.user.uid
-        val token = await(session.user.getIdToken(false))?.token ?: return null
-        if (!current(session)) return null
-        val pending = pending(token) ?: return null
-        if (!current(session)) return null
-        val chat = pending.opt("conversationId") as? String ?: return null
-        val message = pending.opt("messageId") as? String ?: return null
-        val sender = pending.opt("senderUid") as? String ?: return null
+        val token = await(session.user.getIdToken(false))?.token
+            ?: return rejected(QaReceiptStage.AUTH_UNAVAILABLE)
+        if (!current(session)) return rejected(QaReceiptStage.SESSION_REJECTED)
+        val pending = pending(token, trace) ?: return rejected(QaReceiptStage.NOTICE_UNAVAILABLE)
+        if (!current(session)) return rejected(QaReceiptStage.SESSION_REJECTED)
+        val chat = pending.opt("conversationId") as? String ?: return rejected(QaReceiptStage.NOTICE_INVALID)
+        val message = pending.opt("messageId") as? String ?: return rejected(QaReceiptStage.NOTICE_INVALID)
+        val sender = pending.opt("senderUid") as? String ?: return rejected(QaReceiptStage.NOTICE_INVALID)
         if (AtrioPeerInboxPolicy.peerFromChatId(uid, chat) != sender ||
             !message.matches(Regex("[A-Za-z0-9_-]{1,128}"))
-        ) return null
+        ) return rejected(QaReceiptStage.NOTICE_INVALID)
         val db = FirebaseFirestore.getInstance()
         val canonical = await(db.document("chats/$chat/messages/$message").get(Source.SERVER))
-        if (!current(session) || canonical == null || !canonical.exists() ||
-            canonical.metadata.isFromCache || canonical.metadata.hasPendingWrites() ||
+        if (!current(session)) return rejected(QaReceiptStage.SESSION_REJECTED)
+        if (canonical == null) return rejected(QaReceiptStage.FIRESTORE_UNAVAILABLE)
+        if (!canonical.exists() || canonical.metadata.isFromCache || canonical.metadata.hasPendingWrites() ||
             canonical.get("uid") != sender || canonical.get("deletedForAll") == true
-        ) return null
+        ) return rejected(QaReceiptStage.CANONICAL_REJECTED)
+        trace?.record(QaReceiptStage.CANONICAL_VALID)
         return Event(chat, message, sender)
     }
 
-    suspend fun receive(context: Context, message: RemoteMessage) {
-        if (!validSignal(message)) return
+    suspend fun receive(context: Context, message: RemoteMessage, trace: QaReceiptDiagnostic.Trace? = null) {
+        signalProblem(message)?.let { trace?.record(it); return }
+        trace?.record(QaReceiptStage.SIGNAL_VALID)
         withContext(Dispatchers.Main.immediate) {
             try {
-                val session = session(context) ?: return@withContext
-                if (!canNotify(context) ||
-                    !QaConversationPushRegistration.mayPresent(context, session.user.uid)) return@withContext
-                val event = read(session) ?: return@withContext
-                if (!current(session) || !canNotify(context) || !validSignal(message) ||
-                    !QaConversationPushRegistration.mayPresent(context, session.user.uid))
-                    return@withContext
+                val session = session(context) ?: run {
+                    trace?.record(QaReceiptStage.SESSION_REJECTED); return@withContext
+                }
+                if (!canNotify(context)) {
+                    trace?.record(QaReceiptStage.PERMISSION_REJECTED); return@withContext
+                }
+                if (!QaConversationPushRegistration.mayPresent(context, session.user.uid)) {
+                    trace?.record(QaReceiptStage.OPT_IN_REJECTED); return@withContext
+                }
+                val event = read(session, trace) ?: return@withContext
+                if (!current(session)) {
+                    trace?.record(QaReceiptStage.SESSION_REJECTED); return@withContext
+                }
+                if (!canNotify(context)) {
+                    trace?.record(QaReceiptStage.PERMISSION_REJECTED); return@withContext
+                }
+                signalProblem(message)?.let { trace?.record(it); return@withContext }
+                if (!QaConversationPushRegistration.mayPresent(context, session.user.uid)) {
+                    trace?.record(QaReceiptStage.OPT_IN_REJECTED); return@withContext
+                }
                 val key = session.user.uid to event
-                if (key in shown) return@withContext
+                if (key in shown) {
+                    trace?.record(QaReceiptStage.DUPLICATE); return@withContext
+                }
                 val ticket = UUID.randomUUID().toString()
                 val destination = Intent(context, MainActivity::class.java).apply {
                     action = TAP
@@ -210,11 +230,22 @@ internal object QaConversationNotices {
                         .putString(TICKET, ticket)
                         .putString("event", eventKey(session.user.uid, event))
                         .putLong("created", System.currentTimeMillis())
-                        .commit()) return@withContext
+                        .commit()) {
+                    trace?.record(QaReceiptStage.TICKET_FAILED); return@withContext
+                }
                 manager(context).notify(NOTICE_ID, alert)
+                if (trace != null) {
+                    // Querying a channel is diagnostic only; don't alter notify/deduplication.
+                    val blocked = runCatching {
+                        manager(context).getNotificationChannel(CHANNEL)?.importance ==
+                            NotificationManager.IMPORTANCE_NONE
+                    }.getOrDefault(false)
+                    trace.record(if (blocked) QaReceiptStage.CHANNEL_BLOCKED else QaReceiptStage.NOTIFY_CALLED)
+                }
                 shown.add(key)
                 if (shown.size > 32) shown.remove(shown.first())
             } catch (_: SecurityException) {
+                trace?.record(QaReceiptStage.SECURITY_EXCEPTION)
                 // A permissão pode ser retirada entre a checagem e o aviso.
             }
         }

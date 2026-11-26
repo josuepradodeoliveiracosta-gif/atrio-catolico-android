@@ -103,6 +103,56 @@ class AtrioInboxMessageHttpTest {
         }
     }
 
+    @Test fun decisionRetryPreservesIntentAndRequiresMatchingCommit() = runBlocking {
+        MockWebServer().use { host ->
+            val client = AtrioInboxMessageHttp({ "qa-id-token" }, host.url("/v1/qa/conversations/").toUrl())
+            var current = true
+            val messages = AtrioManagedMessages({ current }, client::submit, client::submitDecision)
+            val chat = "clara__miguel"
+            host.enqueue(MockResponse().setResponseCode(503))
+            host.enqueue(MockResponse().setBody("""{"committed":true,"chatId":"other","status":"accepted"}"""))
+            host.enqueue(MockResponse().setBody("""{"committed":true,"chatId":"clara__miguel","status":"accepted"}"""))
+            assertEquals(AtrioDecisionReply.Pending, messages.decide(chat, "accepted"))
+            assertNull(messages.decide(chat, "declined"))
+            assertEquals(AtrioDecisionReply.Pending, messages.decide(chat, "accepted"))
+            assertEquals(AtrioDecisionReply.Committed, messages.decide(chat, "accepted"))
+            assertNull(messages.decide(chat, "declined"))
+            current = false
+            assertNull(messages.decide(chat, "accepted"))
+            assertNull(messages.decision(chat))
+            val requests = List(3) { requireNotNull(host.takeRequest(2, TimeUnit.SECONDS)) }
+            assertEquals(3, host.requestCount)
+            assertEquals(1, requests.map { it.getHeader("Idempotency-Key") }.toSet().size)
+            requests.forEach {
+                assertEquals("/v1/qa/conversations/chats/$chat/decision", it.path)
+                assertEquals("POST", it.method)
+                assertEquals("Bearer qa-id-token", it.getHeader("Authorization"))
+                assertEquals("accepted", JSONObject(it.body.readUtf8()).getString("status"))
+            }
+        }
+    }
+
+    @Test fun inboxTransportIsPinnedToLoopbackOrExactQaHttps() {
+        fun remote(origin: String = QA_GERAL_PUSH_RELAY_URL, project: String = "atrio-catolico-qa-general",
+                   host: String = "firestore.googleapis.com", ssl: Boolean = true,
+                   round: Boolean = true, enabled: Boolean = true) =
+            atrioInboxBaseFor(enabled, true, round, project, host, ssl, origin)
+        assertEquals("http://127.0.0.1:8091/v1/qa/conversations/",
+            atrioInboxBaseFor(true, false, false, "demo-atrio-v11", "127.0.0.1:8089", false, "")?.toExternalForm())
+        assertEquals("$QA_GERAL_PUSH_RELAY_URL/v1/qa/conversations/", remote()?.toExternalForm())
+        assertNull(remote(origin = "https://atrio-push.atrio-catolico.workers.dev"))
+        assertNull(remote(origin = "$QA_GERAL_PUSH_RELAY_URL/"))
+        assertNull(remote(origin = "http://127.0.0.1:8091"))
+        assertNull(remote(origin = "$QA_GERAL_PUSH_RELAY_URL.example.invalid"))
+        assertNull(remote(project = "atrio-catolico"))
+        assertNull(remote(host = "127.0.0.1:8089"))
+        assertNull(remote(ssl = false))
+        assertNull(remote(round = false))
+        assertNull(remote(enabled = false))
+        assertNull(atrioInboxBaseFor(true, false, false, "atrio-catolico-qa-general",
+            "127.0.0.1:8089", false, ""))
+    }
+
     private fun ok(chatId: String, messageId: String) = MockResponse().setBody(
         """{"committed":true,"replayed":false,"chatId":"$chatId","messageId":"$messageId"}"""
     )
