@@ -10,6 +10,7 @@ import {D1_LAB_BUDGET_SCHEMA} from './qa-automatic-d1-budget-lab.mjs';
 import {D1_TRIAL_SCHEMA} from './qa-automatic-d1-trial-lab.mjs';
 import {D1_SCHEDULE_SCHEMA} from './qa-automatic-d1-scheduled-candidate.mjs';
 import {D1_PROBE_SCHEDULE_SCHEMA} from './qa-automatic-d1-probe-scheduled-lab.mjs';
+import {CONTINUOUS_SCHEMA} from './qa-automatic-continuous-gate.mjs';
 const hash=s=>createHash('sha256').update(s).digest('hex');
 export function buildLocalAutomaticCandidate({scheduledCandidate=false,identityProbeCandidate=false}={}){
  if(typeof scheduledCandidate!=='boolean'||typeof identityProbeCandidate!=='boolean'||(scheduledCandidate&&identityProbeCandidate))throw Error('invalid_candidate_mode');
@@ -40,7 +41,7 @@ export function buildLocalAutomaticCandidate({scheduledCandidate=false,identityP
  "export default {fetch:(req,env)=>candidate.fetch(req,env)};"
  ]),
  ""]).join('\n');
- const schema='-- Additive candidate schema only. No activation or data changes.\n'+(identityProbeCandidate?D1_PROBE_SCHEDULE_SCHEMA+'\n':D1_OUTBOX_LAB_SCHEMA+'\n'+D1_LAB_BUDGET_SCHEMA+'\n'+D1_TRIAL_SCHEMA+'\n'+(scheduledCandidate?D1_SCHEDULE_SCHEMA+'\n':''));
+ const schema='-- Additive candidate schema only. No activation or data changes.\n'+(identityProbeCandidate?D1_PROBE_SCHEDULE_SCHEMA+'\n':D1_OUTBOX_LAB_SCHEMA+'\n'+D1_LAB_BUDGET_SCHEMA+'\n'+D1_TRIAL_SCHEMA+'\n'+(scheduledCandidate?D1_SCHEDULE_SCHEMA+'\n'+CONTINUOUS_SCHEMA+'\n':''));
  const files={'entry.mjs':entry,'worker.mjs':worker,'schema-candidate.sql':schema};
  for(const [name,content] of Object.entries(files))writeFileSync(resolve(output,name),content,{flag:'wx'});
  const manifest={kind:'qa-automatic-local-candidate',deployable:false,requiresRepository:true,
