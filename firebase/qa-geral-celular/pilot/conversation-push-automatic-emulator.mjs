@@ -1,6 +1,7 @@
 // Laboratory only. No deployed trigger, no HTTP route, no FCM, no credentials.
 // The real adapter and its IAM identity must be reviewed separately.
 import {createHash,randomUUID} from 'node:crypto';
+import {planPublicationRetry} from './conversation-push-automatic-retry-plan.mjs';
 import {planAutomaticNotice,AUTO_CHAT} from './conversation-push-automatic-plan.mjs';
 import {conversationPushIdentity as identity} from './conversation-push-policy.mjs';
 
@@ -83,17 +84,54 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
       };
     return {snapshot,now,chat,messageId,eventKey,sender,recipient,pendingRef,receiptRef,outboxRef,outbox,creation:message.createTime};
   }
-  return Object.freeze({async handle(event){
-    if (enabled!==true) return {status:'ignored',reason:'automation_disabled'};
-    if (event?.type!=='created'||event.projectId!==identity.projectId||
-        event.databaseId!==identity.databaseId||event.chatId!==AUTO_CHAT||!allowedId(event.messageId))
+  const eventValid=event=>event?.type==='created'&&event.projectId===identity.projectId&&
+    event.databaseId===identity.databaseId&&event.chatId===AUTO_CHAT&&allowedId(event.messageId);
+  const validKey=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
+  const stampValid=v=>Number.isSafeInteger(v?.seconds)&&v.seconds>0&&
+    Number.isInteger(v.nanoseconds)&&v.nanoseconds>=0&&v.nanoseconds<1e9;
+  const retryCollection='qaPushAutomaticRetries';
+
+  async function processEvent(initialEvent,retryKey){
+    if(enabled!==true)return {status:'ignored',reason:'automation_disabled'};
+    if(retryKey===null?!eventValid(initialEvent):!validKey(retryKey))
       return {status:'ignored',reason:'invalid_event'};
     const accounts=await currentAccounts();
-    if(!accounts)return {status:'ignored',reason:'auth_unavailable'};
+    if(!accounts&&retryKey===null)return {status:'ignored',reason:'auth_unavailable'};
+    const eventKeyForRetry=retryKey??key(initialEvent.chatId,initialEvent.messageId);
     return db.runTransaction(async tx=>{
+      const retryRef=doc(retryCollection+'/'+eventKeyForRetry);
+      const retrySnap=await tx.get(retryRef),prior=row(retrySnap);
+      const retryNow=ms(retrySnap.readTime);
+      let event=initialEvent;
+      const stopRetry=reason=>{
+        if(retryKey!==null)tx.update(retryRef,{state:'stopped_lab',reason,finishedAt:serverTimestamp()});
+        return {status:'ignored',reason};
+      };
+      if(retryKey===null&&retrySnap.exists)
+        return {status:'ignored',reason:'retry_already_recorded'};
+      if(retryKey!==null){
+        if(prior?.state!=='scheduled_lab')return {status:'ignored',reason:'retry_not_scheduled'};
+        if(prior.roundId!==identity.roundId||prior.conversationId!==AUTO_CHAT||
+           !allowedId(prior.messageId)||key(prior.conversationId,prior.messageId)!==retryKey||
+           !stampValid(prior.messageCreateTime)||!Number.isSafeInteger(prior.attempts)||
+           prior.attempts<1||prior.attempts>3||!Number.isSafeInteger(retryNow)||
+           !Number.isSafeInteger(ms(prior.deadline))||!Number.isSafeInteger(ms(prior.nextAt)))
+          return stopRetry('invalid_retry_record');
+        if(ms(prior.deadline)-retryNow<10000)return stopRetry('retry_expired');
+        if(ms(prior.nextAt)>retryNow)return {status:'ignored',reason:'retry_not_due'};
+        if(!accounts)return stopRetry('auth_unavailable');
+        event={type:'created',projectId:identity.projectId,databaseId:identity.databaseId,
+          chatId:prior.conversationId,messageId:prior.messageId,expectedCreateTime:prior.messageCreateTime};
+      }
       const state=await readState(tx,event,accounts);
-      if(!state)return {status:'ignored',reason:'invalid_or_expired_message'};
+      if(!state)return stopRetry('invalid_or_expired_message');
       const {snapshot,now,chat,messageId,eventKey,sender,recipient,pendingRef,receiptRef,outboxRef,outbox,creation}=state;
+      if(outbox.exists)return stopRetry('outbox_exists_or_unknown');
+      if(retryKey!==null&&(prior.senderUid!==sender||prior.recipientUid!==recipient||
+         prior.senderGeneration!==snapshot.admissions[sender]?.generation||
+         prior.recipientGeneration!==snapshot.admissions[recipient]?.generation||
+         ms(prior.deadline)-now<10000))
+        return stopRetry('retry_authorization_changed');
       let decision=planAutomaticNotice({enabled:true,event,snapshot,now});
       let superseded=null;
       if(decision.status==='defer'&&decision.reason==='active_pending'&&!outbox.exists){
@@ -126,9 +164,31 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
           }
         }
       }
-      if (decision.status!=='candidate') return decision;
-      if(outbox.exists) return {status:'ignored',reason:'outbox_exists_or_unknown'};
-      const n=decision.notice;
+      if(decision.status==='defer'&&decision.reason==='active_pending'){
+        const plan=planPublicationRetry({decision,now,attempts:prior?.attempts??0,
+          originalDeadline:prior?ms(prior.deadline):decision.retryBefore,
+          pendingExpiresAt:snapshot.pending.expiresAt});
+        const binding={roundId:identity.roundId,conversationId:chat,messageId,senderUid:sender,
+          recipientUid:recipient,senderGeneration:snapshot.admissions[sender].generation,
+          recipientGeneration:snapshot.admissions[recipient].generation,
+          messageCreateTime:{seconds:creation.seconds,nanoseconds:creation.nanoseconds}};
+        if(plan.status==='schedule'){
+          const fields={state:'scheduled_lab',attempts:plan.attempt,deadline:new Date(plan.deadline),
+            nextAt:new Date(plan.nextAt),updatedAt:serverTimestamp()};
+          if(prior)tx.update(retryRef,fields);
+          else tx.create(retryRef,{...binding,...fields,createdAt:serverTimestamp()});
+          return {...decision,retryStatus:'scheduled_lab',eventKey,attempt:plan.attempt};
+        }
+        const fields={state:'stopped_lab',reason:plan.reason,finishedAt:serverTimestamp()};
+        if(prior)tx.update(retryRef,fields);
+        else tx.create(retryRef,{...binding,...fields,attempts:0,
+          deadline:new Date(decision.retryBefore),createdAt:serverTimestamp()});
+        return {...decision,retryStatus:'stopped_lab',eventKey};
+      }
+      if(decision.status!=='candidate')return retryKey===null?decision:stopRetry(decision.reason);
+      const n={...decision.notice};
+      if(prior)n.expiresAt=new Date(Math.min(n.expiresAt.getTime(),ms(prior.deadline)));
+      if(n.expiresAt.getTime()-now<10000)return stopRetry('retry_expired');
       const record={kind:'chat_message',conversationId:chat,messageId,senderUid:sender,unread:true,
         roundId:identity.roundId,expiresAt:n.expiresAt,senderGeneration:n.expectedSenderGeneration,
         recipientGeneration:n.expectedRecipientGeneration};
@@ -143,9 +203,26 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
         messageId,senderUid:sender,recipientUid:recipient,senderGeneration:record.senderGeneration,
         recipientGeneration:record.recipientGeneration,expiresAt:n.expiresAt,createdAt:serverTimestamp(),
         messageCreateTime:{seconds:creation.seconds,nanoseconds:creation.nanoseconds}});
+      if(prior)tx.update(retryRef,{state:'published_lab',finishedAt:serverTimestamp()});
       return {status:'published_lab',eventKey};
     });
+  }
 
+  return Object.freeze({
+  async handle(event){return processEvent(event,null)},
+  async retry(eventKey){
+    if(!validKey(eventKey))return {status:'ignored',reason:'invalid_event_key'};
+    return processEvent(null,eventKey);
+  },
+  // Bounded, manually invoked drain in the emulator. The query's local clock
+  // is only a selection hint; each transaction uses Firestore readTime.
+  async drainDue(){
+    if(enabled!==true)return [];
+    const due=await db.collection(retryCollection).where('state','==','scheduled_lab')
+      .where('nextAt','<=',new Date()).orderBy('nextAt').limit(10).get();
+    const results=[];
+    for(const entry of due.docs)results.push(await processEvent(null,entry.id));
+    return results;
   },
   // One-shot claim: no automatic reclaim after a crash or uncertain send.
   // A real Worker must still revalidate and reserve in D1 before transport.

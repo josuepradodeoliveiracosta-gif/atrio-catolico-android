@@ -24,6 +24,7 @@ const gen=i=>'00000000-0000-4000-8000-00000000000'+i;
 const hash=id=>createHash('sha256').update(JSON.stringify([roundId,AUTO_CHAT,id])).digest('hex');
 const receipt=id=>d('users/'+alice+'/chatPushPublicationReceipts/'+hash(id));
 const outbox=id=>d('qaPushAutomaticOutbox/'+hash(id));
+const retryRow=id=>d('qaPushAutomaticRetries/'+hash(id));
 const event=id=>({type:'created',projectId,databaseId,chatId:AUTO_CHAT,messageId:id});
 const make=enabled=>createAutomaticPushEmulator({db,auth,enabled,serverTimestamp:()=>FieldValue.serverTimestamp()});
 const service=make(true);
@@ -87,12 +88,22 @@ try{
  await test('active pending defers newer message; expired pending can advance; old receipt not reopened',async()=>{
   // Simulate a manual receipt: the automatic path must never supersede it.
   await receipt('one').update({operatorUid:'manual-fixture'});
+  await pending.update({expiresAt:new Date(Date.now()+2000)});
   await newMessage('two');
-  assert.equal((await service.handle(event('two'))).status,'defer');
+  const deferred=await service.handle(event('two'));
+  assert.equal(deferred.status,'defer');
+  assert.equal(deferred.retryStatus,'scheduled_lab');
   await absent('two');
   assert.equal((await pending.get()).data().messageId,'one');
-  await pending.update({expiresAt:new Date(Date.now()-5000)});
-  assert.equal((await service.handle(event('two'))).status,'published_lab');
+  const scheduled=(await retryRow('two').get()).data();
+  assert.equal(scheduled.attempts,1);
+  assert.equal((await service.handle(event('two'))).reason,'retry_already_recorded');
+  assert.equal((await make(true).retry(deferred.eventKey)).reason,'retry_not_due');
+  await new Promise(r=>setTimeout(r,Math.max(0,scheduled.nextAt.toMillis()-Date.now()+150)));
+  const results=await Promise.all([make(true).retry(deferred.eventKey),make(true).retry(deferred.eventKey)]);
+  assert.equal(results.filter(r=>r.status==='published_lab').length,1);
+  assert.equal((await retryRow('two').get()).data().state,'published_lab');
+  assert.ok((await pending.get()).data().expiresAt.toMillis()<=scheduled.deadline.toMillis());
   assert.equal((await pending.get()).data().messageId,'two');
   assert.equal((await service.handle(event('one'))).status,'ignored');
  });
@@ -274,5 +285,63 @@ try{
   const [claim,fresh]=await Promise.all([service.claim(pub.eventKey),service.handle(event('race-new'))]);
   assert.equal(claim.status,'ignored');assert.equal(fresh.status,'published_lab');
   assert.equal((await outbox('race-old').get()).data().state,'superseded_lab');
+ });
+
+ async function deferFixture(id){
+  await seed(id);
+  // Existing manual slot, no automatic outbox to coalesce.
+  await pending.set({unread:true,expiresAt:new Date(Date.now()+2000),
+    messageId:'manual-old',kind:'chat_message',conversationId:AUTO_CHAT,senderUid:bob,
+    roundId,senderGeneration:gen(1),recipientGeneration:gen(0)});
+  const first=await service.handle(event(id));
+  assert.equal(first.retryStatus,'scheduled_lab');
+  return first;
+ }
+ async function waitDue(id){
+  const row=(await retryRow(id).get()).data();
+  await new Promise(r=>setTimeout(r,Math.max(0,row.nextAt.toMillis()-Date.now()+150)));
+  return row;
+ }
+ await test('durable retry budget is shared across instances; never reset or extend deadline',async()=>{
+  const first=await deferFixture('retry-budget');
+  const original=(await retryRow('retry-budget').get()).data().deadline.toMillis();
+  for(let attempt=1;attempt<=3;attempt++){
+   const row=await waitDue('retry-budget');
+   assert.equal(row.attempts,attempt);
+   await pending.update({expiresAt:new Date(Date.now()+1500)});
+   const result=await make(true).retry(first.eventKey);
+   assert.equal(result.status,'defer');
+   const next=(await retryRow('retry-budget').get()).data();
+   assert.equal(next.deadline.toMillis(),original);
+   if(attempt<3){assert.equal(next.state,'scheduled_lab');assert.equal(next.attempts,attempt+1)}
+   else {assert.equal(next.state,'stopped_lab');assert.equal(next.attempts,3)}
+   assert.equal((await service.handle(event('retry-budget'))).reason,'retry_already_recorded');
+  }
+  assert.equal((await service.retry(first.eventKey)).reason,'retry_not_scheduled');
+  await absent('retry-budget');
+ });
+ await test('due retry with superseded canonical message stops and cannot be restarted',async()=>{
+  const first=await deferFixture('retry-stale');
+  await newMessage('retry-newer');
+  await waitDue('retry-stale');
+  assert.equal((await service.retry(first.eventKey)).status,'ignored');
+  assert.equal((await retryRow('retry-stale').get()).data().state,'stopped_lab');
+  await absent('retry-stale');
+ });
+ await test('due drain respects persisted expiry and publishes one eligible event',async()=>{
+  const first=await deferFixture('retry-drain');
+  await waitDue('retry-drain');
+  const results=await make(true).drainDue();
+  assert.ok(results.some(r=>r.status==='published_lab'&&r.eventKey===first.eventKey));
+  assert.equal((await retryRow('retry-drain').get()).data().state,'published_lab');
+  assert.equal((await service.retry(first.eventKey)).reason,'retry_not_scheduled');
+ });
+ await test('expired retry is terminal even after pending removed',async()=>{
+  const first=await deferFixture('retry-expired');
+  await retryRow('retry-expired').update({deadline:new Date(Date.now()-1)});
+  await pending.delete();
+  assert.equal((await service.retry(first.eventKey)).reason,'retry_expired');
+  assert.equal((await retryRow('retry-expired').get()).data().state,'stopped_lab');
+  await absent('retry-expired');
  });
 }finally{await deleteApp(app)}
