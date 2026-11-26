@@ -16,3 +16,10 @@ test('each missing, stale, inconsistent or paid assertion blocks',()=>{
  for(const bad of [{observedAt:now-900001},{observedAt:now+1},{workersPlan:'paid'},{firebaseBillingEnabled:true},{cronCount:1},{firestoreReadsRemaining:14999},{d1RowsWrittenRemaining:19999},{secretIdentityVerified:'true'}])
   assert.equal(reviewQaAutomaticPreflight({...good,...bad},now).status,'blocked');
 });
+
+test('preflight refuses impossible quota or malformed rollback evidence',()=>{
+ for(const patch of [{deploymentId:'-'.repeat(36)},{versionId:'a'.repeat(36)},{firestoreReadsRemaining:50001},
+  {d1RowsReadRemaining:5000001},{d1RowsWrittenRemaining:100001},{workerRequestsRemaining:100001}]){
+  assert.equal(reviewQaAutomaticPreflight({...good,...patch},now).status,'blocked');
+ }
+});

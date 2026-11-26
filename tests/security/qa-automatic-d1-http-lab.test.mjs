@@ -10,7 +10,7 @@ const begin={url:fs+':beginTransaction',method:'POST',redirect:'error',body:{opt
 const lookup=['qa-nav-alice','qa-nav-bob'];
 const user=uid=>({localId:uid,email:identity.accounts[uid],emailVerified:true,validSince:'1'});
 const fixture=(kind='tick',over={})=>{
- const calls=[],flags={redirect:false,failOAuth:false,badAuth:false,wrongUser:false};
+ const calls=[],fcmBodies=[],flags={redirect:false,failOAuth:false,badAuth:false,wrongUser:false};
  const fetchImpl=async(url,init)=>{
   calls.push(url);assert.equal(init.redirect,'manual');assert.ok(init.signal);
   if(url==='https://oauth2.googleapis.com/token'){
@@ -25,10 +25,17 @@ const fixture=(kind='tick',over={})=>{
   assert.equal(init.headers.Authorization,'Bearer fixture-access');
   if(url.endsWith('/accounts:lookup'))return Response.json({users:lookup.map(user)});
   if(url.endsWith('pushDevices?pageSize=6'))return Response.json({documents:[{name:root+'/users/'+lookup[0]+'/pushDevices/one',updateTime:new Date().toISOString(),fields:{token:{stringValue:'synthetic-not-an-fcm-token'},updatedAt:{timestampValue:new Date().toISOString()}}}]});
-  if(url.endsWith('/messages:send'))return Response.json({name:'projects/'+project+'/messages/fixture'});
+  if(url.endsWith('/messages:send')){
+   assert.equal(init.method,'POST');assert.equal(init.headers['Content-Type'],'application/json');
+   const body=JSON.parse(init.body);assert.deepEqual(Object.keys(body),['message']);
+   assert.deepEqual(body.message.data,{signal:'refresh'});assert.equal(body.message.android.priority,'HIGH');
+   assert.ok(Number.parseInt(body.message.android.ttl)>=10&&Number.parseInt(body.message.android.ttl)<=60);
+   fcmBodies.push(body);
+   return Response.json({name:'projects/'+project+'/messages/fixture'});
+  }
   return Response.json({transaction:'fixture-token'});
  };
- return {calls,flags,http:createD1HttpLab({enabled:true,kind,fetchImpl,serviceAccount,webApiKey:'fixture',...over})};
+ return {calls,fcmBodies,flags,http:createD1HttpLab({enabled:true,kind,fetchImpl,serviceAccount,webApiKey:'fixture',...over})};
 };
 test('fixed service account, OAuth signature, one token per invocation',async()=>{
  const f=fixture();
@@ -39,6 +46,7 @@ test('fixed service account, OAuth signature, one token per invocation',async()=
  assert.equal((await res.json()).name,'projects/'+project+'/messages/fixture');
  assert.equal(f.calls.filter(x=>x.includes('oauth2')).length,1);
  assert.equal(f.http.usage().actualExternalAttempts,5);
+ assert.equal(f.fcmBodies.length,1);assert.equal(f.http.usage().fcmAttempted,true);
  await assert.rejects(f.http.sendRefresh({token:'synthetic-not-an-fcm-token',data:{signal:'refresh'},android:{priority:'HIGH',ttl:'60s'}}));
 });
 test('wrong project, writes, unbounded read and disabled credential fail before I/O',async()=>{
@@ -80,4 +88,18 @@ test('last-moment send gate denies FCM and expired deadline never acquires OAuth
  const expired=fixture();
  await assert.rejects(expired.http.sendRefresh(msg,Date.now()-1));
  assert.equal(expired.calls.length,0);
+});
+
+test('FCM recalculates remaining TTL after OAuth and the final gate',async t=>{
+ const initial=Date.now();let now=initial;
+ t.mock.method(Date,'now',()=>now);
+ const msg={token:'synthetic-not-an-fcm-token',data:{signal:'refresh'},android:{priority:'HIGH',ttl:'60s'}};
+ const f=fixture('tick',{beforeSend:async()=>{now=initial+35000;return true}});
+ await f.http.sendRefresh(msg,initial+60000);
+ assert.equal(f.fcmBodies[0].message.android.ttl,'25s');
+ const expired=fixture('tick',{beforeSend:async()=>{now=initial+59000;return true}});
+ now=initial;
+ await assert.rejects(expired.http.sendRefresh(msg,initial+60000));
+ assert.equal(expired.calls.length,1);assert.equal(expired.fcmBodies.length,0);
+ assert.equal(expired.http.usage().fcmAttempted,false);
 });

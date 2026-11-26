@@ -8,6 +8,7 @@ import {conversationPushIdentity as identity} from '../../../firebase/qa-geral-c
 const project=identity.projectId,root='projects/'+project+'/databases/'+identity.databaseId+'/documents';
 const fs='https://firestore.googleapis.com/v1/'+root;
 const oauth='https://oauth2.googleapis.com/token';
+const fcm='https://fcm.googleapis.com/v1/projects/'+project+'/messages:send';
 const accountEmail='atrio-qa-general-push@'+project+'.iam.gserviceaccount.com';
 const auth='https://identitytoolkit.googleapis.com/v1';
 const uids=Object.keys(identity.accounts);
@@ -78,9 +79,13 @@ export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,web
      typeof webApiKey!=='string'||!/^[A-Za-z0-9_-]{1,256}$/.test(webApiKey))fail();
  }
  async function request(url,init){
-  ready();if(attempts>=cap)fail();attempts++;
-  if(url==='https://fcm.googleapis.com/v1/projects/'+project+'/messages:send')fcmAttempted=true;
-  const r=await fetchImpl(url,{...init,redirect:'manual',signal:AbortSignal.timeout(10000)});
+  ready();
+  if(!init||!['GET','POST'].includes(init.method)||!init.headers||typeof init.headers!=='object'||attempts>=cap)fail();
+  if(url===fcm&&(init.method!=='POST'||typeof init.headers.Authorization!=='string'||!init.headers.Authorization.startsWith('Bearer ')||typeof init.body!=='string'))fail();
+  const options={...init,redirect:'manual',signal:AbortSignal.timeout(10000)};
+  attempts++;
+  if(url===fcm)fcmAttempted=true;
+  const r=await fetchImpl(url,options);
   if(!Number.isInteger(r?.status)||r.status<200||r.status>599||(r.status>=300&&r.status<400)||r.type==='opaqueredirect')fail();
   return r;
  }
@@ -102,9 +107,12 @@ export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,web
      String(b.token_type).toLowerCase()!=='bearer'||!Number.isSafeInteger(b.expires_in)||b.expires_in<60)fail();
   access=b.access_token;return access;
  }
- async function service(url,method,body){
+ async function service(url,method,body,prepareBody){
   const t=await token();
-  return request(url,{method,headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
+  if(prepareBody)body=await prepareBody();
+  const init={method,headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'}};
+  if(body!==undefined)init.body=JSON.stringify(body);
+  return request(url,init);
  }
  return Object.freeze({
   async transport(req){
@@ -158,13 +166,14 @@ export function createD1HttpLab({enabled=false,kind,fetchImpl,serviceAccount,web
       !/^(?:[1-5]\d|60)s$/.test(message.android.ttl))fail();
    if(!Number.isSafeInteger(expiresAt)||expiresAt-Date.now()<10000)fail();
    sent=true;
-   const t=await token();
-   if(await beforeSend()!==true)fail();
-   const ttl=Math.min(Number.parseInt(message.android.ttl),60,Math.floor((expiresAt-Date.now())/1000));
-   if(ttl<10)fail();
-   const payload={...message,android:{...message.android,ttl:ttl+'s'}};
-   const r=await request('https://fcm.googleapis.com/v1/projects/'+project+'/messages:send','POST',{
-    headers:{Authorization:'Bearer '+t,'Content-Type':'application/json'},body:JSON.stringify({message:payload})});
+   // Reuse the authenticated request builder, never a separate calling convention.
+   // The gate runs after OAuth and computes TTL at the last possible boundary.
+   const r=await service(fcm,'POST',undefined,async()=>{
+    if(await beforeSend()!==true)fail();
+    const ttl=Math.min(Number.parseInt(message.android.ttl),60,Math.floor((expiresAt-Date.now())/1000));
+    if(ttl<10)fail();
+    return {message:{...message,android:{...message.android,ttl:ttl+'s'}}};
+   });
    return {ok:r.status===200,status:r.status,json:()=>boundedJson(r)};
   },
   usage:()=>({actualExternalAttempts:attempts,oauthAttempted:oauthStarted,fcmAttempted})

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {generateKeyPairSync} from 'node:crypto';
 import {resolve} from 'node:path';
+import {readFileSync,rmSync} from 'node:fs';
+import {buildLocalAutomaticCandidate} from '../../cloudflare/push-worker/scripts/build-automatic-candidate-local.mjs';
 import {fileURLToPath} from 'node:url';
 import {D1_OUTBOX_LAB_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-outbox-lab.mjs';
 import {D1_TRIAL_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-trial-lab.mjs';
@@ -47,4 +49,44 @@ test('local workerd uses WebCrypto and actual Miniflare D1 binding', {timeout:60
   assert.deepEqual(budget,{discovery:1,work:2,notice:0});
   console.log('workerd local probe: '+JSON.stringify({status:body.status,signals:body.signals,httpCalls:body.httpCalls,actualD1Binding:true,retainedHistory:60,units:body.units}));
  }finally{await mf.dispose()}
+});
+
+// The actual generated entry (not a substitute Worker fixture) in workerd.
+// The package is still local-only, with no cron or remote binding.
+test('generated QA entry in local workerd preserves shutdown and trial rejection', {timeout:60000},async()=>{
+ const root=process.env.ATRIO_MINIFLARE_ROOT;assert.ok(root);
+ const {Miniflare}=createRequire(resolve(root,'package.json'))('miniflare');
+ const repo=fileURLToPath(new URL('../../',import.meta.url));
+ const folder=buildLocalAutomaticCandidate();
+ const activatedAt=Date.now()-10000;
+ let outbound=0;
+ const mf=new Miniflare({modules:true,modulesRoot:repo,scriptPath:resolve(folder,'entry.mjs'),
+  compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],cf:false,host:'127.0.0.1',port:0,
+  d1Databases:{QA_PUSH_DB:'atrio-generated-entry-local-test'},d1Persist:false,
+  bindings:{QA_PUSH_ENABLED:'true',QA_CONVERSATION_PUSH_ENABLED:'true',QA_AUTO_MODE:'automatic',
+   QA_AUTO_ACTIVATED_AT:String(activatedAt),QA_FIREBASE_WEB_API_KEY:'fixture',
+   QA_FIREBASE_SERVICE_ACCOUNT_JSON:JSON.stringify({project_id:'atrio-catolico-qa-general',
+    client_email:'atrio-qa-general-push@atrio-catolico-qa-general.iam.gserviceaccount.com',private_key:'fixture'})},
+  outboundService:async()=>{outbound++;return new Response('network denied',{status:403})}});
+ try{
+  const db=await mf.getD1Database('QA_PUSH_DB');
+  // Schema has a leading comment; D1 prepare accepts the SQL after it.
+  const schema=readFileSync(resolve(folder,'schema-candidate.sql'),'utf8').replace(/^--[^\n]*\n/,'');
+  for(const sql of schema.split(';').map(s=>s.trim()).filter(Boolean))await db.prepare(sql).run();
+  await db.prepare('INSERT INTO qa_auto_d1_activation_lab VALUES(1,?,1)').bind(activatedAt).run();
+  await db.prepare('INSERT INTO qa_auto_d1_trial_lab(singleton,activated_at,ends_at) VALUES(1,?,?)').bind(activatedAt,activatedAt+3600000).run();
+  assert.equal((await mf.dispatchFetch('http://localhost/notice')).status,401);
+  assert.equal((await mf.dispatchFetch('http://localhost/event',{method:'POST',body:JSON.stringify({type:'chat_message'})})).status,503);
+  assert.equal((await mf.dispatchFetch('http://localhost/tick')).status,404);
+  assert.equal((await db.prepare('SELECT ticks,notices FROM qa_auto_d1_trial_lab').first()).notices,0);
+  assert.equal(outbound,0);
+  await db.prepare('UPDATE qa_auto_d1_activation_lab SET enabled=0').run();
+  const now=Math.floor(Date.now()/1000),project='atrio-catolico-qa-general';
+  const token=Buffer.from('{"alg":"RS256"}').toString('base64url')+'.'+Buffer.from(JSON.stringify({
+   aud:project,iss:'https://securetoken.google.com/'+project,sub:'qa-nav-alice',email:'alice.navegacao@qa.invalid',
+   email_verified:true,auth_time:now-10,iat:now-1,exp:now+300,firebase:{sign_in_provider:'password'}})).toString('base64url')+'.fixture';
+  assert.equal((await mf.dispatchFetch('http://localhost/notice',{headers:{Authorization:'Bearer '+token}})).status,503);
+  assert.equal(outbound,0);
+  assert.deepEqual(await db.prepare('SELECT ticks,notices FROM qa_auto_d1_trial_lab').first(),{ticks:0,notices:0});
+ }finally{await mf.dispose();rmSync(folder,{recursive:true,force:true})}
 });
