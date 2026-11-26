@@ -32,16 +32,18 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
   }
   async function readState(tx,event,accounts){
     const chat=event.chatId,messageId=event.messageId,eventKey=key(chat,messageId);
-      const [config,room,message,writeBoundary,pagination,...others]=await Promise.all([
-        tx.get(doc('app_config/conversations')),tx.get(doc('chats/'+chat)),
-        tx.get(doc('chats/'+chat+'/messages/'+messageId)),
-        tx.get(doc('serverInboxControl/writeBoundary')),tx.get(doc('serverInboxControl/pagination')),
+      // Batch document reads on the same transaction stream. Do not fan out
+      // concurrent RPCs on a transaction, especially while another writer waits.
+      const [config,room,message,writeBoundary,pagination,...others]=await tx.getAll(
+        doc('app_config/conversations'),doc('chats/'+chat),
+        doc('chats/'+chat+'/messages/'+messageId),
+        doc('serverInboxControl/writeBoundary'),doc('serverInboxControl/pagination'),
         ...uids.flatMap(uid=>[
-          tx.get(doc('users/'+uid+'/chatPushAdmission/current')),
-          tx.get(doc('users/'+uid+'/chatAgeEligibility/current')),
-          tx.get(doc('users/'+uid+'/blockedMembers/'+uids.find(x=>x!==uid))),
+          doc('users/'+uid+'/chatPushAdmission/current'),
+          doc('users/'+uid+'/chatAgeEligibility/current'),
+          doc('users/'+uid+'/blockedMembers/'+uids.find(x=>x!==uid)),
         ])
-      ]);
+      );
       // A delayed creation event must not authorize a newly recreated document.
       if(event.expectedCreateTime!==undefined&&
           (message.createTime?.seconds!==event.expectedCreateTime?.seconds||
@@ -55,11 +57,8 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
       const receiptRef=doc(user+'/chatPushPublicationReceipts/'+eventKey);
       const pendingRef=doc(user+'/chatPushPending/current');
       const outboxRef=doc('qaPushAutomaticOutbox/'+eventKey);
-      const [mute,devices,receipt,pending,outbox]=await Promise.all([
-        tx.get(doc(user+'/chatBox/'+chat)),
-        tx.get(db.collection(user+'/pushDevices').limit(5)),
-        tx.get(receiptRef),tx.get(pendingRef),tx.get(outboxRef)
-      ]);
+      const [mute,receipt,pending,outbox]=await tx.getAll(doc(user+'/chatBox/'+chat),receiptRef,pendingRef,outboxRef);
+      const devices=await tx.get(db.collection(user+'/pushDevices').limit(5));
       const now=ms(config.readTime);
       const c=row(config),p=row(pending);
       const admissions={},eligibility={},blocked={};
@@ -144,9 +143,9 @@ export function createAutomaticPushEmulator({db,auth,serverTimestamp,enabled=fal
            p.recipientGeneration===snapshot.admissions[recipient]?.generation){
           const oldKey=key(chat,p.messageId);
           const oldRef=doc('qaPushAutomaticOutbox/'+oldKey);
-          const [oldOut,oldReceipt,oldMessage]=await Promise.all([
-            tx.get(oldRef),tx.get(doc('users/'+recipient+'/chatPushPublicationReceipts/'+oldKey)),
-            tx.get(doc('chats/'+chat+'/messages/'+p.messageId))]);
+          const [oldOut,oldReceipt,oldMessage]=await tx.getAll(oldRef,
+            doc('users/'+recipient+'/chatPushPublicationReceipts/'+oldKey),
+            doc('chats/'+chat+'/messages/'+p.messageId));
           const o=row(oldOut),r=row(oldReceipt),m=row(oldMessage);
           if(o?.state==='pending_transport'&&!Object.hasOwn(o,'claimId')&&!Object.hasOwn(o,'claimedAt')&&
              o.roundId===identity.roundId&&o.conversationId===chat&&o.messageId===p.messageId&&
