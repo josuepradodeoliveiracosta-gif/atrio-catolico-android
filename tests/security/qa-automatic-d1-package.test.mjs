@@ -48,3 +48,21 @@ test('optional scheduled package has no config, activation, or public tick',asyn
  assert.equal((await w.fetch(new Request('https://qa.invalid/tick'),{})).status,404);
  assert.equal(net.mock.callCount(),0);
 });
+
+test('identity-only generated package preserves manual relay and excludes automatic schedule entry',async t=>{
+ const folder=buildLocalAutomaticCandidate({identityProbeCandidate:true});t.after(()=>rmSync(folder,{recursive:true,force:true}));
+ const manifest=JSON.parse(readFileSync(resolve(folder,'manifest.json'),'utf8'));
+ assert.equal(manifest.deployable,false);assert.equal(manifest.identityProbeCandidate,true);assert.equal(manifest.scheduledCandidate,false);
+ const entry=readFileSync(resolve(folder,'entry.mjs'),'utf8');
+ assert.doesNotMatch(entry,/createQaAutomaticCandidateRelay|createQaScheduledCandidate/);
+ const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
+ sql.exec(readFileSync(resolve(folder,'schema-candidate.sql'),'utf8'));
+ assert.equal(sql.prepare('SELECT count(*) AS n FROM qa_auto_identity_probe_lab').get().n,0);
+ assert.equal(sql.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name='qa_auto_d1_activation_lab'").get().n,0);
+ const {default:w}=await import(pathToFileURL(resolve(folder,'entry.mjs')).href);
+ const net=t.mock.method(globalThis,'fetch',()=>assert.fail('unexpected network'));
+ assert.equal((await w.scheduled({cron:'* * * * *',scheduledTime:Date.now()},{})).reason,'probe_disabled');
+ assert.equal((await w.fetch(new Request('https://qa.invalid/tick'),{})).status,404);
+ assert.equal(net.mock.callCount(),0);
+ assert.throws(()=>buildLocalAutomaticCandidate({identityProbeCandidate:true,scheduledCandidate:true}));
+});
