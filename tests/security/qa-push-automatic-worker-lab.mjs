@@ -126,9 +126,10 @@ export async function createWorkerLab(t,{db,auth,service,afterReservation=async(
      const res=await worker.fetch(req,env);
      workerStatus=(await res.json()).status;
      if(res.status===202&&workerStatus==='accepted_by_fcm')outcome='accepted_simulated';
-     else if(['ignored','no_devices_or_duplicate','authorization_interrupted'].includes(workerStatus))
+     else if(['ignored','no_devices_or_duplicate'].includes(workerStatus))
       outcome='rejected_simulated';
-     // Even definitive FCM HTTP errors can be partial/multi-device; conservative unknown.
+     // An interruption may follow a successful send to another device.
+     // Treat it and HTTP/transport errors as unknown rather than claim no delivery.
     }
    }catch{/* any unexpected result is terminal unknown */}
    const result=await service.finish({...claim,outcome});

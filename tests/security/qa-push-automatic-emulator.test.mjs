@@ -191,7 +191,7 @@ try{
   const lab=await createWorkerLab(t,{db,auth,service,afterReservation:()=>d('users/'+bob+'/chatPushAdmission/current').update({status:'revoked'})});
   const result=await lab.dispatch(labBearer(),{eventKey:pub.eventKey});
   assert.equal(result.workerStatus,'authorization_interrupted');
-  assert.equal(result.status,'rejected_simulated');
+  assert.equal(result.status,'unknown');
   assert.deepEqual(lab.stats(),{sends:0,reservations:1});
  });
  await test('ambiguous FCM transport never retried',async t=>{
