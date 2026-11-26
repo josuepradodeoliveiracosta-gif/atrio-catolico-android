@@ -70,7 +70,31 @@ def observation_index(manifest, now):
     return index
 
 
-def build(report, manifest=None, *, now):
+def qa_metadata(receipts, now):
+    # Imported files are not signed attestations and never imply actual health.
+    from scripts.qa_service_diagnostics import PROJECTS, WORKERS, OUTCOMES
+    if not isinstance(receipts, (list, tuple)) or len(receipts) > 5:
+        raise ValueError("recibos QA acima do limite")
+    result, seen = [], set()
+    for row in receipts:
+        if (not isinstance(row, dict) or set(row) != {"schema_version", "environment",
+                "probe", "outcome", "observed_at", "scope", "operational_health_verified"}
+                or type(row["schema_version"]) is not int or row["schema_version"] != 1
+                or row["scope"] != "metadata_only" or row["operational_health_verified"] is not False
+                or row["outcome"] not in OUTCOMES or row["environment"] not in tuple(PROJECTS)
+                or row["probe"] not in ("firestore_database_metadata", "worker_deployment_metadata")
+                or (row["probe"] == "worker_deployment_metadata" and row["environment"] not in WORKERS)):
+            raise ValueError("recibo QA fora do contrato")
+        key = (row["environment"], row["probe"])
+        observed = utc(row["observed_at"])
+        if key in seen or observed > now:
+            raise ValueError("recibo QA duplicado ou futuro")
+        seen.add(key)
+        result.append(dict(row, source="imported_unverified", stale=now-observed > MAX_AGE))
+    return result
+
+
+def build(report, manifest=None, *, now, qa_receipts=()):
     if not isinstance(now, datetime) or now.tzinfo is None:
         raise ValueError("relogio de referencia deve ter fuso")
     now = now.astimezone(timezone.utc)
@@ -104,7 +128,7 @@ def build(report, manifest=None, *, now):
                 "failed_checks": failed, "non_success_checks": snapshot["non_success_count"],
                 "expected_required_checks": len(expected), "blocking_expected_checks": blocking,
                 "head_freshness": snapshot["freshness"]},
-            "operational": rows,
+            "operational": rows, "qa_metadata": qa_metadata(qa_receipts, now),
             "operational_health_verified": False, "root_cause_confirmed": False,
             "automatic_actions_executed": 0, "network_requests_performed": 0}
 
@@ -123,6 +147,11 @@ def markdown(result):
     for row in result["operational"]:
         lines.append("| " + " | ".join((row["environment"], row["component"], row["state"],
                      row["severity"], row["observed_at"] or "—")) + " |")
+    lines.extend(["", "## Metadados QA importados (não verificados)", "",
+                  "| Ambiente | Sonda | Resultado | Validade |", "| --- | --- | --- | --- |"])
+    for item in result["qa_metadata"]:
+        lines.append("| " + " | ".join((item["environment"], item["probe"], item["outcome"],
+                     "vencido" if item["stale"] else "dentro da janela")) + " |")
     lines.extend(["", "Nenhuma causa raiz, reparo, autorização de merge ou deploy comprovados.", ""])
     return "\n".join(lines)
 
@@ -131,15 +160,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ci-report", required=True)
     parser.add_argument("--observations", help="manifesto manual opcional, sem dados pessoais")
+    parser.add_argument("--qa-receipt", action="append", default=[])
     parser.add_argument("--json", required=True)
     parser.add_argument("--markdown", required=True)
     args = parser.parse_args()
-    paths = [Path(p).resolve() for p in (args.ci_report, args.observations, args.json, args.markdown) if p]
+    paths = [Path(p).resolve() for p in (args.ci_report, args.observations, *args.qa_receipt, args.json, args.markdown) if p]
     if len(set(paths)) != len(paths):
         raise ValueError("origens e destinos devem ser distintos")
     result = build(read_json(args.ci_report),
                    read_json(args.observations) if args.observations else None,
-                   now=datetime.now(timezone.utc))
+                   now=datetime.now(timezone.utc),
+                   qa_receipts=[read_json(p) for p in args.qa_receipt])
     if Path(args.json).exists() or Path(args.markdown).exists():
         raise ValueError("destinos existentes")
     with Path(args.json).open("x", encoding="utf-8") as handle:
