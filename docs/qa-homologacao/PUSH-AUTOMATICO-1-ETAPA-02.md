@@ -1,0 +1,7 @@
+# Push Automático 1.0 — etapa 02, laboratório transacional
+
+O adaptador lê Firestore e Auth exclusivamente nos emuladores locais, projeto demo-atrio-v11. A identidade lógica de QA é simulada para exercitar o contrato. Não possui handler de nuvem, endpoint, fila externa ou credenciais. O runtime remoto não deve reutilizar esse adaptador sem revisão.
+
+A transação relê configuração, fronteiras, mensagem, conversa, admissões, provas etárias, bloqueios, silêncio, dispositivo, pendência e recibo. Cria pendência, recibo compatível com o serviço manual e outbox pending_transport juntos. Evento repetido não reabre publicação. Pendência ativa adia, evento superado descarta; não há scheduler de retentativa ainda. A prova preliminar de dispositivo não substitui as verificações do Worker. Auth não participa da transação Firestore; é obrigatória revalidação antes do transporte.
+
+Testes no emulador: fechamento padrão, concorrência, integridade dos três registros, pendência ativa, expiração, mensagem superada, bloqueio, silêncio, idade, revogação, leitura, exclusão, fronteira gerenciada, outbox órfão. Nenhum FCM real. Antes de exposição remota: autenticação serviço-serviço, política de outbox/retentativa, reserva D1, resultado ambíguo FCM, auditoria IAM e custo, revisão das regras de acesso ao novo namespace, testes de corrida de revogação e kill switch. Nenhuma alteração em Rules, IAM ou Worker atual.
