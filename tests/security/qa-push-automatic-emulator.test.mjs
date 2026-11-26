@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {DatabaseSync} from 'node:sqlite';
+import {createMeteredD1Lab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-metered-lab.mjs';
+import {D1_LAB_BUDGET_SCHEMA} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-budget-lab.mjs';
 import {createD1ModeLab} from '../../cloudflare/push-worker/scripts/qa-automatic-d1-mode-lab.mjs';
 import {readFileSync} from 'node:fs';
 import {renderConversationPushPilotWorker} from '../../cloudflare/push-worker/scripts/conversation-push-pilot.mjs';
@@ -693,6 +695,28 @@ try{
      finally{await auth.updateUser(alice,{disabled:false})}
      await d('users/'+alice+'/chatBox/'+AUTO_CHAT).set({muted:true});
      assert.equal((await notice(bearerFor(alice))).status,404);
+
+     sql.exec(D1_LAB_BUDGET_SCHEMA);
+     sql.prepare('UPDATE qa_auto_d1_outbox_lab SET expires_at=? WHERE event_key=?').run(Date.now()-1,sent.eventKey);
+     await seed('d1-metered');
+     let meteredSignals=0;
+     const metered=createMeteredD1Lab({db:bridge,enabled:true,activatedAt,transport:readonly,lookupAccounts,
+      manualWorker,verifyIdentity:workerVerify,listDevices:uid=>workerDevices('fixture-access-token',uid),
+      sendRefresh:async msg=>{meteredSignals++;assert.deepEqual(msg.data,{signal:'refresh'});return Response.json({name:'projects/'+projectId+'/messages/d1-metered'})}});
+     // Discovery uses masked batchGet, allowed by readonly adapter.
+     const tick=await metered.tick(env);
+     assert.equal(tick.result.transportStatus,'accepted_simulated',JSON.stringify(tick));
+     assert.equal(meteredSignals,1);
+     assert.ok(tick.usage.externalReserved<=35&&tick.usage.d1Calls<=24);
+     const n=await metered.notice(new Request('https://qa.invalid/notice',{headers:{Authorization:bearerFor(alice)}}),env);
+     assert.equal(n.response.status,200);
+     assert.equal((await n.response.json()).messageId,'d1-metered');
+     assert.ok(n.usage.externalReserved<=10&&n.usage.d1Calls<=10);
+     assert.equal((await metered.tick(env)).result.reason,'not_pending');
+     const limits=sql.prepare('SELECT discovery,work,notice FROM qa_auto_d1_budget_lab').get();
+     assert.equal(limits.discovery,2);assert.equal(limits.work,1);assert.equal(limits.notice,1);
+     await absent('d1-metered');assert.equal((await pending.get()).exists,false);
+     console.log('D1 single tick reserved units: '+JSON.stringify({tick:tick.usage,notice:n.usage}));
     }finally{globalThis.fetch=previousFetch}
 
     assert.ok(reads.length>0);
