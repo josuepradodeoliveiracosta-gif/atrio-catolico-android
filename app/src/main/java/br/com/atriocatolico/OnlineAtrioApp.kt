@@ -318,11 +318,33 @@ internal fun OnlineAuthScreen(
     } else emailValid && password.length >= 6 // Não bloquear senhas antigas no login.
 
     val dark = isSystemInDarkTheme()
-    val formBackground = if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
-    val formHeading = if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
-    val formText = if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
-    val formOutline = if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
-    val fieldColors = if (registering) OutlinedTextFieldDefaults.colors(
+    val stainedRegistration = registering && registrationVitraisEnabled(BuildConfig.BUILD_TYPE)
+    val formBackground = if (stainedRegistration) Color(0xFF211922) else if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
+    val formHeading = if (stainedRegistration) Color(0xFFFFE4AA) else if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
+    val formText = if (stainedRegistration) Color(0xFFFFF5E6) else if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
+    val formOutline = if (stainedRegistration) Color(0xFFD9B97B) else if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
+    val formError = if (stainedRegistration) Color(0xFFFFB4AB) else MaterialTheme.colorScheme.error
+    val fieldColors = if (stainedRegistration) OutlinedTextFieldDefaults.colors(
+        focusedTextColor = formText,
+        unfocusedTextColor = formText,
+        focusedLabelColor = formHeading,
+        unfocusedLabelColor = formHeading,
+        focusedBorderColor = formHeading,
+        unfocusedBorderColor = formOutline,
+        cursorColor = formHeading,
+        focusedTrailingIconColor = formHeading,
+        unfocusedTrailingIconColor = formHeading,
+        focusedSupportingTextColor = formText,
+        unfocusedSupportingTextColor = formText,
+        errorTextColor = formText,
+        errorLabelColor = formError,
+        errorBorderColor = formError,
+        errorCursorColor = formError,
+        errorSupportingTextColor = formError,
+        errorTrailingIconColor = formError,
+        disabledTextColor = formText.copy(alpha = .72f),
+        disabledLabelColor = formText.copy(alpha = .72f)
+    ) else if (registering) OutlinedTextFieldDefaults.colors(
         focusedTextColor = formText,
         unfocusedTextColor = formText,
         focusedLabelColor = formHeading,
@@ -336,38 +358,48 @@ internal fun OnlineAuthScreen(
         unfocusedSupportingTextColor = formText
     ) else OutlinedTextFieldDefaults.colors()
 
+    val stainedLogin = !registering && loginVitraisEnabled(BuildConfig.BUILD_TYPE)
+    val loginHeadingColor = if (stainedLogin) Color.White else MaterialTheme.colorScheme.onPrimary
+    Box(Modifier.fillMaxSize()) {
+        if (stainedLogin) LoginLiturgicalBackdrop()
+        if (stainedRegistration) RegistrationLiturgicalBackdrop()
     Column(
-        Modifier.fillMaxSize().background(if (registering) formBackground else Wine)
+        Modifier.fillMaxSize().background(if (stainedRegistration || stainedLogin) Color.Transparent else if (registering) formBackground else Wine)
             .statusBarsPadding().navigationBarsPadding().imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 24.dp),
-        horizontalAlignment = if (registering) Alignment.CenterHorizontally else Alignment.Start
+        horizontalAlignment = if (registering || stainedLogin) Alignment.CenterHorizontally else Alignment.Start
     ) {
         if (registering) {
             RegistrationCompactHeader(
                 titleColor = formHeading,
                 outlineColor = formOutline,
                 onBack = { goBack() },
-                enabled = !busy
+                enabled = !busy,
+                showIllustration = !stainedRegistration
             )
+            if (stainedRegistration) Spacer(Modifier.height(112.dp))
         } else {
-            Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = Gold)
+            Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = if (stainedLogin) Color(0xFFFFD98B) else Gold)
             Text("Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                fontSize = 33.sp, color = MaterialTheme.colorScheme.onPrimary)
+                fontSize = 33.sp, color = loginHeadingColor)
             Spacer(Modifier.height(10.dp))
             Text("Um lugar para aprender e compartilhar a fé.",
-                color = MaterialTheme.colorScheme.onPrimary, fontSize = 15.sp)
+                color = loginHeadingColor, fontSize = 15.sp)
             Spacer(Modifier.height(26.dp))
         }
         Card(
-            modifier = if (registering) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier,
+            modifier = if (registering || stainedLogin) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier,
             colors = if (registering) {
-                CardDefaults.cardColors(containerColor = formBackground, contentColor = formText)
+                CardDefaults.cardColors(
+                    containerColor = if (stainedRegistration) formBackground.copy(alpha = .86f) else formBackground,
+                    contentColor = formText
+                )
             } else CardDefaults.cardColors(containerColor = Paper),
             shape = RoundedCornerShape(20.dp)
         ) {
             Column(
-                Modifier.padding(if (registering) 0.dp else 20.dp),
+                Modifier.padding(if (stainedRegistration) 16.dp else if (registering) 0.dp else 20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
@@ -487,12 +519,15 @@ internal fun OnlineAuthScreen(
                 }
                 if (error.isNotBlank()) {
                     Text(error, modifier = Modifier.testTag("atrio-auth-error"),
-                        color = MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
+                        color = if (stainedRegistration) formError else MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
                 }
                 if (resetInfo.isNotBlank()) Text(resetInfo, color = Wine, fontSize = AtrioType.secondary)
                 Button(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("atrio-auth-submit"),
-                    colors = if (registering) ButtonDefaults.buttonColors(
+                    colors = if (stainedRegistration) ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFFEAC5), contentColor = Color(0xFF211922),
+                        disabledContainerColor = Color(0xFF50434B), disabledContentColor = Color(0xFFE5D9D2)
+                    ) else if (registering) ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF701333), contentColor = Color.White
                     ) else ButtonDefaults.buttonColors(),
                     enabled = !busy && ready,
@@ -577,7 +612,9 @@ internal fun OnlineAuthScreen(
                             startAtLogin -> AuthPage.REGISTER
                             else -> AuthPage.PARTICIPATION
                         }
-                    }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle")) {
+                    }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle"),
+                        colors = if (stainedRegistration) ButtonDefaults.textButtonColors(contentColor = formHeading)
+                            else ButtonDefaults.textButtonColors()) {
                         Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
                     }
                 }
@@ -602,6 +639,7 @@ internal fun OnlineAuthScreen(
                     modifier = Modifier.fillMaxWidth())
             }
         }
+    }
     }
     if (legalDocument.isNotEmpty()) {
         AlertDialog(

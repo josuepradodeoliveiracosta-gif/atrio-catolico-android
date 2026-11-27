@@ -160,7 +160,7 @@ run_suite() {
       profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
       profiles:PerfilQaSaveEmulatorTest|\
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
-      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
+      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
       bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
       bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest|\
@@ -437,8 +437,25 @@ run_suite ReactionEmojiUiTest
 run_suite DiscussionDetailV2UiTest
 # Fonte ampliada sem dados de produção: compositor 200%, navegação 160%.
 run_suite AtrioTypographyAccessibilityUiTest
+if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == true ]]; then
+  run_suite LoginLiturgicalBackdropUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+else
+  run_suite LoginLiturgicalBackdropUiTest
+fi
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
+  if [[ "$qa_apk" == "qaGeral" ]]; then
+    mkdir -p qa-android-suite-results/login-preview
+    if ! adb pull /data/local/tmp/atrio-login-preview/. qa-android-suite-results/login-preview/; then
+      qa_failed=1
+      echo "Falha ao coletar print do login"
+    fi
+    mkdir -p qa-android-suite-results/registration-preview
+    if ! adb pull /data/local/tmp/atrio-registration-preview/. qa-android-suite-results/registration-preview/; then
+      qa_failed=1
+      echo "Falha ao coletar print do cadastro"
+    fi
+  fi
   mkdir -p qa-android-suite-results/reaction-preview
   if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
     qa_failed=1
@@ -480,6 +497,13 @@ if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
       -H 'Content-Type: application/json' --data-binary @- \
       http://127.0.0.1:8089/emulator/v1/projects/demo-atrio-v11:securityRules
   run_suite PerfilQaSaveEmulatorTest
+fi
+# Medições não alteram as demais suítes; somente QA Geral local, após interação.
+if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "$qa_failed" == 0 ]]; then
+  if ! bash scripts/measure-login-vitrais-qa.sh; then
+    qa_failed=1
+    echo "QA Android: medição de vitrais incompleta; consultar evidências"
+  fi
 fi
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"

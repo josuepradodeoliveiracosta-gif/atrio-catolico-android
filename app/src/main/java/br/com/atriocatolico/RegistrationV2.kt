@@ -87,7 +87,8 @@ internal fun RegistrationCompactHeader(
     titleColor: Color,
     outlineColor: Color,
     onBack: () -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    showIllustration: Boolean = true
 ) {
     Box(Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
         IconButton(
@@ -101,7 +102,7 @@ internal fun RegistrationCompactHeader(
             Modifier.align(Alignment.Center).padding(horizontal = 48.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Image(
+            if (showIllustration) Image(
                 painterResource(R.drawable.atrio_boas_vindas_vitral),
                 contentDescription = null,
                 modifier = Modifier.size(72.dp).testTag("atrio-auth-vitral")
@@ -113,7 +114,7 @@ internal fun RegistrationCompactHeader(
             )
         }
     }
-    HorizontalDivider(
+    if (showIllustration) HorizontalDivider(
         Modifier.widthIn(max = 440.dp).fillMaxWidth().padding(top = 12.dp),
         color = outlineColor
     )
