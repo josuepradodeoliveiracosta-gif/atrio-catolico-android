@@ -1,0 +1,125 @@
+name: QA 49 — regressão de retorno às boas-vindas
+
+on:
+  push:
+    branches: [ci/qa49-welcome-back-validation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-ui:
+    name: Validar interação e boas-vindas do QA 49
+    runs-on: ubuntu-latest
+    env:
+      ATRIO_QA_SUITE_GROUP: interaction
+      ATRIO_QA_APK: qaGeral
+      ATRIO_QA_GERAL_BUILD: '1'
+      ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
+    timeout-minutes: 35
+    steps:
+      # A revisão padrão do evento mantém a PR no ref de teste do GitHub.
+      - name: Obter revisão do evento
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: f4ac7d8ac35e3aba6742ea2a2cc850bce903e414
+      - name: Registrar o commit executado pela suíte
+        run: test "$(git rev-parse HEAD)" = f4ac7d8ac35e3aba6742ea2a2cc850bce903e414
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v4
+      - name: Configurar Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      # A compilacao pesada comeca antes do boot e do npm ci.
+      # A VM e efemera; segredos e google-services.json nao entram no APK.
+      - name: Isolar Firebase antes de iniciar a compilacao
+        shell: bash
+        run: |
+          test "$ATRIO_QA_APK" = 'qaGeral'
+          test "$ATRIO_QA_GERAL_BUILD" = '1'
+          test "$ATRIO_QA_FIREBASE_PROJECT" = 'demo-atrio-v11'
+          test -z "${ATRIO_CHAT_QA_BUILD:-}"
+          test -z "${ATRIO_PERFIL_QA_BUILD:-}"
+          for key in ATRIO_PUSH_WORKER_URL ATRIO_GUARDIAN_V2_WORKER_URL ATRIO_AVATAR_WORKER_URL GOOGLE_APPLICATION_CREDENTIALS ATRIO_SIGNING_STORE_FILE ATRIO_SIGNING_STORE_PASSWORD ATRIO_SIGNING_KEY_ALIAS ATRIO_SIGNING_KEY_PASSWORD; do
+            if [[ -n "${!key:-}" ]]; then
+              echo "QA offline: variavel de producao proibida: $key" >&2
+              exit 2
+            fi
+          done
+          for config in app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
+            if [[ -e "$config" ]]; then
+              echo "QA Geral: configuracao de variante diferente detectada" >&2
+              exit 2
+            fi
+          done
+          if [[ -e app/google-services.json ]]; then
+            echo "Removendo google-services.json somente no checkout efemero do CI"
+            rm -- app/google-services.json
+          fi
+          test ! -e app/google-services.json
+      - name: Iniciar compilacao APK QA Geral enquanto o emulador inicializa
+        run: bash scripts/qa-android-prebuild.sh start
+      - name: Preparar Node.js para Firebase Emulator Suite
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validar plano de grupos offline
+        run: python3 -m unittest discover -s scripts -p 'test_qa_android_*.py' -v
+      - name: Instalar Firebase CLI de testes
+        working-directory: tests/security
+        run: npm ci
+      - name: Validar que não há segredos de produção no ambiente de QA
+        run: |
+          test -z "${ATRIO_PUSH_WORKER_URL:-}"
+          test -z "${GOOGLE_APPLICATION_CREDENTIALS:-}"
+          echo "QA offline: os testes Android usam apenas dados de demonstração."
+      # O emulador x86_64 precisa de aceleração KVM; sem ela o Android
+      # não conclui o boot em CI e nenhum teste de toque chega a iniciar.
+      - name: Habilitar KVM para emulador Android
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -c /dev/kvm || { echo "KVM não disponível no runner"; exit 1; }
+          # Alguns runners mantêm as permissões antigas após o udev trigger.
+          # Essa permissão vale só para a VM efêmera de CI, nunca para produção.
+          sudo chmod 0666 /dev/kvm
+          ls -l /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm || { echo "Acesso negado ao /dev/kvm"; exit 1; }
+      - name: Rodar interface no emulador Android virtual
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_4
+          # O AVD padrão exige >7 GB só para userdata no runner.
+          # 2 GB comporta o APK debug e os emuladores locais de QA.
+          disk-size: 2048M
+          ram-size: 2048M
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
+          script: bash scripts/run-qa-android-emulator.sh
+      - name: Relatório de testes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa49-welcome-back-interaction-reports
+          path: |
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
+            qa-android-suite-results
+            qa-firebase-emulators.log
+            qa-android-prebuild.log
+            qa-android-prebuild.status
+          retention-days: 7
+          if-no-files-found: warn
