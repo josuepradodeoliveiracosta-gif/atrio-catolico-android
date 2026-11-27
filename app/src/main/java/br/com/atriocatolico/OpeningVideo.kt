@@ -1,11 +1,13 @@
 package br.com.atriocatolico
 
 import android.content.Context
-import android.media.MediaPlayer
-import android.net.Uri
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Movie
 import android.os.Handler
 import android.os.Looper
-import android.widget.VideoView
+import android.os.SystemClock
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -26,6 +28,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -38,26 +41,65 @@ private const val MAX_OPENING_DURATION_MS = 15_000L
 private const val STARTUP_PREFS = "atrio-startup-video"
 private const val WATCHED_TO_END_KEY = "watched_to_end"
 
-/**
- * Full-screen, offline opening shown on every new MainActivity launch.
- * The 9:16 movie uses VideoView's aspect-preserving fit; never crop its content.
- *
- * The startup movie includes audio and is not a Firebase loading indicator.
- * The first successful viewing is mandatory. Later launches show a Skip button.
- * Authentication and the community UI start after playback, on a permitted skip,
- * or on media failure/timeout (which must not count as a completed viewing).
- * The bundled asset can be replaced independently at res/raw/abertura_atrio.mp4.
- */
+/** Reproduz uma única passagem do GIF local, inclusive em Android 26/27. */
+@Suppress("DEPRECATION")
+private class OpeningGifView(context: Context) : View(context) {
+    private val movie: Movie? = try {
+        resources.openRawResource(R.raw.abertura_atrio).use { Movie.decodeStream(it) }
+    } catch (_: Exception) { null }
+
+    val durationMs = movie?.duration()?.toLong()?.takeIf { it > 0 } ?: 0L
+    val valid = durationMs in 1L..MAX_OPENING_DURATION_MS &&
+        (movie?.width() ?: 0) > 0 && (movie?.height() ?: 0) > 0
+    private var elapsedMs = 0L
+    private var resumedAt: Long? = null
+
+    init {
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
+        setBackgroundColor(Color.rgb(15, 25, 45))
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+
+    fun elapsed(): Long = elapsedMs + (resumedAt?.let { SystemClock.uptimeMillis() - it } ?: 0L)
+    fun resumeAnimation() {
+        if (resumedAt == null) resumedAt = SystemClock.uptimeMillis()
+        invalidate()
+    }
+    fun pauseAnimation() {
+        elapsedMs = elapsed()
+        resumedAt = null
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val image = movie ?: return
+        if (!valid || width <= 0 || height <= 0) return
+        image.setTime(elapsed().coerceIn(0L, durationMs - 1L).toInt())
+        val sx = width.toFloat() / image.width()
+        val sy = height.toFloat() / image.height()
+        // Preenchimento em proporções próximas da arte. Em telas mais
+        // estreitas/largas, não cortar título nem barra de progresso.
+        val aspect = width.toFloat() / height
+        val scale = if (aspect in 0.53f..0.59f) maxOf(sx, sy) else minOf(sx, sy)
+        val dx = (width - image.width() * scale) / 2f
+        val dy = (height - image.height() * scale) / 2f
+        canvas.save()
+        canvas.translate(dx, dy)
+        canvas.scale(scale, scale)
+        image.draw(canvas, 0f, 0f)
+        canvas.restore()
+        if (resumedAt != null && elapsed() < durationMs) postInvalidateOnAnimation()
+    }
+}
+
+/** Mantém o gate existente, sem MP4, áudio ou dependência externa. */
 @Composable
 internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Unit) {
-    // O registro local permanece após atualizações, mas é apagado ao limpar os
-    // dados/reinstalar (android:allowBackup=false no manifesto).
     val prefs = remember(activity) {
         activity.getSharedPreferences(STARTUP_PREFS, Context.MODE_PRIVATE)
     }
-    val canSkip = remember(activity) {
-        prefs.getBoolean(WATCHED_TO_END_KEY, false)
-    }
+    val canSkip = remember(activity) { prefs.getBoolean(WATCHED_TO_END_KEY, false) }
     val currentFinish by rememberUpdatedState(onFinished)
     var finished by remember { mutableStateOf(false) }
     val finishOnce: () -> Unit = {
@@ -66,13 +108,9 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
             currentFinish()
         }
     }
-
-    val videoView = remember(activity) { VideoView(activity) }
-    // Voltar fecha o aplicativo; não dispensa a primeira visualização.
-    // Uma nova abertura cria uma nova Activity e reinicia a apresentação.
+    val gifView = remember(activity) { OpeningGifView(activity) }
     BackHandler(enabled = !finished) { activity.finish() }
 
-    // Keep system bars hidden only during the video. Restore them for login/feed.
     DisposableEffect(activity) {
         val bars = WindowInsetsControllerCompat(activity.window, activity.window.decorView)
         bars.systemBarsBehavior =
@@ -81,99 +119,67 @@ internal fun AtrioStartupVideo(activity: ComponentActivity, onFinished: () -> Un
         onDispose { bars.show(WindowInsetsCompat.Type.systemBars()) }
     }
 
-    DisposableEffect(videoView, activity) {
+    DisposableEffect(gifView, activity) {
         val handler = Handler(Looper.getMainLooper())
-        val watchdog = Runnable { finishOnce() }
-        var prepared = false
         var disposed = false
-
-        videoView.setOnPreparedListener { media: MediaPlayer ->
-            if (!disposed) {
-                prepared = true
-                media.isLooping = false
-                // Reproduz a trilha do MP4 respeitando o volume de mídia do aparelho.
-                // O ganho do player não aumenta nem altera o volume do sistema.
-                media.setVolume(1f, 1f)
-                if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                    videoView.start()
-                }
-            }
-        }
-        videoView.setOnCompletionListener {
-            if (!disposed && !finished) {
-                // Registrar apenas o término natural: Pular, erro, timeout e
-                // fechamento do app nunca marcam o primeiro vídeo como visto.
-                // commit() confirma a gravação antes de navegar para o app.
-                prefs.edit().putBoolean(WATCHED_TO_END_KEY, true).commit()
+        val complete = Runnable {
+            if (!disposed && !finished && activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                gifView.pauseAnimation()
+                prefs.edit().putBoolean(WATCHED_TO_END_KEY, true).apply()
                 finishOnce()
             }
         }
-        videoView.setOnErrorListener { _, _, _ ->
-            if (!disposed) finishOnce()
-            true
+        val watchdog = Runnable { if (!disposed) finishOnce() }
+        fun pause() {
+            handler.removeCallbacks(complete)
+            handler.removeCallbacks(watchdog)
+            gifView.pauseAnimation()
         }
-
-        val lifecycleObserver = LifecycleEventObserver { _, event ->
+        fun resume() {
+            if (finished || disposed) return
+            handler.removeCallbacks(complete)
+            handler.removeCallbacks(watchdog)
+            if (!gifView.valid) {
+                handler.post(watchdog)
+                return
+            }
+            gifView.resumeAnimation()
+            handler.postDelayed(complete, (gifView.durationMs - gifView.elapsed()).coerceAtLeast(0L))
+            handler.postDelayed(watchdog, MAX_OPENING_DURATION_MS)
+        }
+        val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> {
-                    handler.removeCallbacks(watchdog)
-                    handler.postDelayed(watchdog, MAX_OPENING_DURATION_MS)
-                    if (prepared) videoView.start()
-                }
-                Lifecycle.Event.ON_PAUSE -> {
-                    handler.removeCallbacks(watchdog)
-                    if (prepared) videoView.pause()
-                }
+                Lifecycle.Event.ON_RESUME -> resume()
+                Lifecycle.Event.ON_PAUSE -> pause()
                 else -> Unit
             }
         }
-        activity.lifecycle.addObserver(lifecycleObserver)
-        // Local resource: works without internet, network permissions or a Worker.
-        videoView.setVideoURI(
-            Uri.parse("android.resource://${activity.packageName}/${R.raw.abertura_atrio}")
-        )
-        if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-            handler.postDelayed(watchdog, MAX_OPENING_DURATION_MS)
-        }
-
+        activity.lifecycle.addObserver(observer)
+        if (activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) resume()
         onDispose {
             disposed = true
-            handler.removeCallbacks(watchdog)
-            activity.lifecycle.removeObserver(lifecycleObserver)
-            videoView.setOnPreparedListener(null)
-            videoView.setOnCompletionListener(null)
-            videoView.setOnErrorListener(null)
-            videoView.stopPlayback()
+            pause()
+            activity.lifecycle.removeObserver(observer)
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Paper).testTag("atrio-opening-fullscreen")) {
-        AndroidView(
-            factory = { videoView },
-            modifier = Modifier.fillMaxSize().testTag("atrio-opening-video")
-        )
+    Box(Modifier.fillMaxSize().background(ComposeColor(0xFF0F192D)).testTag("atrio-opening-fullscreen")) {
+        AndroidView(factory = { gifView }, modifier = Modifier.fillMaxSize().testTag("atrio-opening-video"))
         if (canSkip) {
             TextButton(
                 onClick = finishOnce,
-                modifier = Modifier.align(Alignment.BottomEnd)
-                    .navigationBarsPadding()
-                    .padding(16.dp)
-                    .heightIn(min = 48.dp)
+                modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding()
+                    .padding(end = 8.dp, bottom = 52.dp).heightIn(min = 48.dp)
                     .testTag("atrio-opening-skip"),
-                colors = ButtonDefaults.textButtonColors(contentColor = Wine)
-            ) {
-                Text("Pular")
-            }
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = ComposeColor(0xE60F192D),
+                    contentColor = ComposeColor.White
+                )
+            ) { Text("Pular") }
         }
     }
 }
 
-
-/**
- * Compatibilidade com a chamada antiga em OnlineAtrioApp.
- * A abertura agora pertence exclusivamente ao início de MainActivity:
- * autenticar uma conta nunca deve exibir o vídeo uma segunda vez.
- */
 @Composable
 @Suppress("UNUSED_PARAMETER")
 internal fun OpeningVideo(activity: ComponentActivity, authenticated: Boolean) = Unit
