@@ -1,5 +1,7 @@
 # Abertura em tela cheia — vídeo de inicialização
 
+> **Atualização eucarística (PR #472):** esta proposta substitui a mídia por um MP4 silencioso de 1,62 s derivado do GIF selecionado, mantendo o reprodutor e o gate existentes. Consulte [ABERTURA-GIF-EUCARISTICO.md](ABERTURA-GIF-EUCARISTICO.md) para os dados e a homologação atual. Os detalhes de mídia, duração e áudio abaixo são históricos e não descrevem o novo arquivo.
+
 **Estado:** abertura fullscreen da PR #116, novo vídeo da PR #118, áudio da PR #119 e abertura sem pulo da PR #120 já integrados à `main`. Esta alteração torna o vídeo obrigatório somente até sua **primeira reprodução completa**, oferecendo **Pular** nos próximos lançamentos. Código integrado não significa APK oficial publicado ou instalado.
 
 ## Comportamento previsto
