@@ -11,15 +11,23 @@ cd "$(dirname "$0")/.."
 }
 test ! -e app/google-services.json
 apk=app/build/outputs/apk/qaGeral/app-qaGeral.apk
-report=qa-android-suite-results/login-vitrais-metrics
+# A comparação do cadastro usa a main que já contém o login integrado.
+scope=login
+base_sha=be1756ff036efdde1aa6529a6268dfe5951d77a3
+if [[ -f docs/vitrais-cadastro.sha256 ]]; then
+  scope=cadastro
+  base_sha=45a77c9007697e6a8aee5709b3a9c0ace17f4dd2
+fi
+report=qa-android-suite-results/$scope-vitrais-metrics
 mkdir -p "$report"
 test -f "$apk"
-python3 - "$apk" "$report/apk-size.json" <<'PY'
+python3 - "$apk" "$report/apk-size.json" "$scope" <<'PY'
 import hashlib, json, pathlib, sys, zipfile
-apk, output = map(pathlib.Path, sys.argv[1:])
-prefix = "assets/login-vitrais/"
+apk, output = map(pathlib.Path, sys.argv[1:3])
+scope = sys.argv[3]
+prefix = f"assets/{scope}-vitrais/"
 manifest = {}
-for line in pathlib.Path("docs/vitrais-login.sha256").read_text().splitlines():
+for line in pathlib.Path(f"docs/vitrais-{scope}.sha256").read_text().splitlines():
     digest, name = line.split()
     manifest[prefix + name] = digest
 assert len(manifest) == 6
@@ -68,7 +76,6 @@ PY
 
 # Comparação A/B com a base exata da PR. Checkout temporário sem credenciais,
 # sem instalar APK em aparelho físico e sem escrever na branch principal.
-base_sha=be1756ff036efdde1aa6529a6268dfe5951d77a3
 if ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
   git fetch --no-tags --depth=1 origin "$base_sha"
 fi
@@ -102,19 +109,19 @@ for trial in 1 2 3 4 5 6 7; do
   done
 done
 adb shell am force-stop "$pkg"
-python3 - "$report" "$base_apk" "$apk" "$base_sha" "$(git rev-parse HEAD)" <<'PY'
+python3 - "$report" "$base_apk" "$apk" "$base_sha" "$(git rev-parse HEAD)" "$scope" <<'PY'
 import json, pathlib, re, statistics, sys, zipfile
 report, base, candidate = map(pathlib.Path, sys.argv[1:4])
 def times(label):
     return [int(re.search(r"(?m)^TotalTime: (\d+)$", (report / f"ab-{label}-{i}.txt").read_text())[1]) for i in range(1, 8)]
 with zipfile.ZipFile(base) as z:
-    assert not any(n.startswith("assets/login-vitrais/") for n in z.namelist())
+    assert not any(n.startswith(f"assets/{sys.argv[6]}-vitrais/") for n in z.namelist())
 a, b = times("base"), times("candidate")
 base_size, candidate_size = base.stat().st_size, candidate.stat().st_size
 base_median, candidate_median = statistics.median(a), statistics.median(b)
 assert base_size > 0 and base_median > 0
 result = {
-    "base_sha": sys.argv[4], "candidate_checkout_sha": sys.argv[5],
+    "base_sha": sys.argv[4], "candidate_checkout_sha": sys.argv[5], "scope": sys.argv[6],
     "base_apk_bytes": base_size, "candidate_apk_bytes": candidate_size,
     "apk_delta_bytes": candidate_size - base_size,
     "apk_delta_percent": round(100 * (candidate_size - base_size) / base_size, 2),
