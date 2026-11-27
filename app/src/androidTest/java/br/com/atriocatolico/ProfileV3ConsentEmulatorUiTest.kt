@@ -56,8 +56,6 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.performTextReplacement
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
@@ -665,24 +663,16 @@ class ProfileV3ConsentEmulatorUiTest {
             val density = LocalDensity.current.density
             CompositionLocalProvider(LocalDensity provides Density(density, 1.5f)) {
                 AtrioTheme {
-                    CompositionLocalProvider(LocalLiturgicalDay provides
-                        LiturgicalCalendarBR.day(java.time.LocalDate.parse("2026-11-29"))) {
-                        Box(Modifier.semantics { testTagsAsResourceId = true }) {
-                            RegistrationWelcomeScreen(onCreate = {}, onLogin = {})
-                        }
+                    Box(Modifier.semantics { testTagsAsResourceId = true }) {
+                        RegistrationWelcomeScreen(onCreate = {}, onLogin = {})
                     }
                 }
             }
-        }
-        compose.waitUntil(15_000) {
-            compose.onAllNodesWithTag("atrio-welcome-season-boas_vindas_vitral_advento.webp",
-                useUnmergedTree = true).fetchSemanticsNodes().size == 1
         }
         val vitral = compose.onNodeWithTag("atrio-welcome-vitral", useUnmergedTree = true)
         assertFalse(vitral.fetchSemanticsNode().config.contains(SemanticsProperties.ContentDescription))
         withTalkBack { automation, talkBackIsActive ->
             for (tag in listOf("atrio-welcome-create", "atrio-welcome-login")) {
-                compose.onNodeWithTag(tag).performScrollTo()
                 fun visibleAction() = automation.rootInActiveWindow
                     ?.takeIf { it.packageName?.toString() == BuildConfig.APPLICATION_ID }
                     ?.findVisibleNode(tag)

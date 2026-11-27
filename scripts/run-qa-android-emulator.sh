@@ -254,6 +254,7 @@ PY
   else
     run_suite "$ATRIO_QA_SUITE"
   fi
+  run_suite WelcomeVitralTalkBackUiTest
   adb logcat -d -s AtrioQaProfileV3:I '*:S' \
     > qa-android-suite-results/profile-v3-offline.log
   if [[ "${ATRIO_QA_PROFILE_V3_DISCUSSIONS_HTTP:-}" == 1 ]]; then
