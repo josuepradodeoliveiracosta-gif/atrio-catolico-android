@@ -21,3 +21,10 @@ Sem credenciais Firebase oficiais. Suíte instrumentada no grupo interaction do 
 - Commit 294340abfff010b3b062022610a2f1db66164f6b: 27 verificações aprovadas, duas ignoradas, nenhuma falha. Suíte de quatro testes de vitrais aprovada, inclusive formulário compacto a 200% (job 140255231625).
 - O grupo interaction passa a coletar SHA-256 das seis artes dentro do APK, tamanho total, payload comprimido e três amostras de abertura de Activity após force-stop. Evidências em qa-android-suite-results/login-vitrais-metrics. Não confundir payload com diferença entre APKs ou primeira janela com login pronto. Resultados do novo commit pendentes.
 - Ainda faltam comparação com uma build da base, inspeção visual/teclado real, paisagem e recuperação completa antes de liberação.
+
+## Resultados do sexto commit (fe95fbf)
+- 27 verificações aprovadas, duas ignoradas, nenhuma falha. Job interaction 140259025783 confirmou a suíte de vitrais e SHA-256 dos seis arquivos dentro do APK.
+- APK QA Geral: 32.744.986 bytes. Artes: 2.237.994 bytes (6,83% do APK; não equivale ao delta entre builds).
+- Abertura da Activity: 2.029, 1.955 e 1.940 ms; mediana 1.955 ms.
+- Contraste analítico mínimo do texto branco sobre as seis artes com scrim 65%: 6,90:1; não substitui inspeção visual.
+- Próximo commit adiciona comparação A/B com a base be1756ff036efdde1aa6529a6268dfe5951d77a3, na mesma variante e no mesmo emulador, três pares alternados. Relatório base-comparison.json. Aguardando resultados; nenhuma ativação em produção.

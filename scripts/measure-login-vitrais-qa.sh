@@ -65,3 +65,64 @@ metrics = {"activity_total_time_ms": samples, "median_ms": statistics.median(sam
 (p / "cold-start-summary.json").write_text(json.dumps(metrics, indent=2) + "\n")
 print(json.dumps(metrics))
 PY
+
+# Comparação A/B com a base exata da PR. Checkout temporário sem credenciais,
+# sem instalar APK em aparelho físico e sem escrever na branch principal.
+base_sha=be1756ff036efdde1aa6529a6268dfe5951d77a3
+if ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+  git fetch --no-tags --depth=1 origin "$base_sha"
+fi
+test "$(git rev-parse "$base_sha^{commit}")" = "$base_sha"
+base_dir="$(mktemp -d "${RUNNER_TEMP:?}/atrio-vitrais-base.XXXXXX")"
+git archive "$base_sha" | tar -x -C "$base_dir"
+# Mesma política de isolamento que o checkout do candidato.
+rm -f -- "$base_dir/app/google-services.json"
+for config in app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
+  test ! -e "$base_dir/$config"
+done
+for key in ATRIO_PUSH_WORKER_URL ATRIO_GUARDIAN_V2_WORKER_URL ATRIO_AVATAR_WORKER_URL GOOGLE_APPLICATION_CREDENTIALS ATRIO_SIGNING_STORE_FILE ATRIO_SIGNING_STORE_PASSWORD ATRIO_SIGNING_KEY_ALIAS ATRIO_SIGNING_KEY_PASSWORD; do
+  test -z "${!key:-}"
+done
+(cd "$base_dir" && gradle :app:assembleQaGeral --no-daemon --stacktrace --max-workers=2) > "$report/base-build.log" 2>&1
+base_apk="$base_dir/app/build/outputs/apk/qaGeral/app-qaGeral.apk"
+test -f "$base_apk"
+test "$("$aapt" dump packagename "$base_apk")" = "$pkg"
+# Medir ambos novamente no mesmo AVD, em sequência alternada A/B.
+for trial in 1 2 3; do
+  for label in base candidate; do
+    if [[ "$label" == base ]]; then sample_apk="$base_apk"; else sample_apk="$apk"; fi
+    adb shell am force-stop "$pkg"
+    adb install -r "$sample_apk" > "$report/ab-$label-install-$trial.log"
+    adb shell am force-stop "$pkg"
+    timeout 45s adb shell am start -W -n "$pkg/br.com.atriocatolico.MainActivity" \
+      | tr -d '\r' | tee "$report/ab-$label-$trial.txt"
+    grep -Eq '^Status: ok$' "$report/ab-$label-$trial.txt"
+    grep -Eq '^TotalTime: [0-9]+$' "$report/ab-$label-$trial.txt"
+  done
+done
+adb shell am force-stop "$pkg"
+python3 - "$report" "$base_apk" "$apk" "$base_sha" "$(git rev-parse HEAD)" <<'PY'
+import json, pathlib, re, statistics, sys, zipfile
+report, base, candidate = map(pathlib.Path, sys.argv[1:4])
+def times(label):
+    return [int(re.search(r"(?m)^TotalTime: (\d+)$", (report / f"ab-{label}-{i}.txt").read_text())[1]) for i in range(1, 4)]
+with zipfile.ZipFile(base) as z:
+    assert not any(n.startswith("assets/login-vitrais/") for n in z.namelist())
+a, b = times("base"), times("candidate")
+base_size, candidate_size = base.stat().st_size, candidate.stat().st_size
+base_median, candidate_median = statistics.median(a), statistics.median(b)
+assert base_size > 0 and base_median > 0
+result = {
+    "base_sha": sys.argv[4], "candidate_checkout_sha": sys.argv[5],
+    "base_apk_bytes": base_size, "candidate_apk_bytes": candidate_size,
+    "apk_delta_bytes": candidate_size - base_size,
+    "apk_delta_percent": round(100 * (candidate_size - base_size) / base_size, 2),
+    "base_cold_start_ms": a, "candidate_cold_start_ms": b,
+    "base_median_ms": base_median, "candidate_median_ms": candidate_median,
+    "median_delta_ms": candidate_median - base_median,
+    "median_delta_percent": round(100 * (candidate_median - base_median) / base_median, 2),
+    "note": "Mesmo AVD e variante qaGeral, três pares alternados, processo a frio. Não mede login totalmente pronto nem desempenho de celular."
+}
+(report / "base-comparison.json").write_text(json.dumps(result, indent=2) + "\n")
+print(json.dumps(result))
+PY
