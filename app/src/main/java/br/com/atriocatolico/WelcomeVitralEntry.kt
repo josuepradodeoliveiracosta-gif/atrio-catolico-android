@@ -34,8 +34,10 @@ internal fun WelcomeVitralEntry(
     season: Season? = LocalLiturgicalDay.current.season,
     buildType: String = BuildConfig.BUILD_TYPE,
     loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap? = ::decodeWelcomeVitral,
+    cache: WelcomeVitralCache? = if (loader == ::decodeWelcomeVitral) sharedWelcomeVitralCache else null,
 ) {
-    if (WelcomeVitralPolicy.resolve(buildType, season) == null) {
+    val spec = WelcomeVitralPolicy.resolve(buildType, season)
+    if (spec == null) {
         RegistrationWelcomeDefault(onCreate, onLogin)
         return
     }
@@ -46,10 +48,16 @@ internal fun WelcomeVitralEntry(
         val frame = rememberWelcomeVitralFrame(
             targetWidth = with(density) { width.roundToPx() },
             targetHeight = with(density) { artHeight.roundToPx() },
-            season = season, buildType = buildType, loader = loader,
+            season = season, buildType = buildType, loader = loader, cache = cache,
         )
-        if (frame == null) RegistrationWelcomeDefault(onCreate, onLogin)
-        else WelcomeVitralScreen(frame, onCreate, onLogin)
+        when (frame) {
+            WelcomeVitralLoadState.Loading -> Box(
+                Modifier.fillMaxSize().background(if (isSystemInDarkTheme()) Color(0xFF20171A) else Color(spec.readingSurface))
+                    .testTag("atrio-welcome-loading"), contentAlignment = Alignment.Center,
+            ) { CircularProgressIndicator(color = if (isSystemInDarkTheme()) Color(0xFFFFB2C6) else Color(spec.accent)) }
+            WelcomeVitralLoadState.Unavailable -> RegistrationWelcomeDefault(onCreate, onLogin)
+            is WelcomeVitralLoadState.Ready -> WelcomeVitralScreen(frame.frame, onCreate, onLogin)
+        }
     }
 }
 

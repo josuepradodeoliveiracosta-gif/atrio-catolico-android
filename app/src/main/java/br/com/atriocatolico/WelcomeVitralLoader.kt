@@ -53,10 +53,26 @@ internal fun decodeWelcomeVitral(
     }
 }
 
-/**
- * Nulo = visual padrão completo. key cria uma nova célula de estado por tema,
- * dimensões e tentativa; a composição anterior é descartada e a cor antiga não
- * vaza para a arte nova. Sem rede, sem I/O na thread principal.
+/** Cache de uma única arte válida; acessado somente pela thread de composição.
+ * Não guarda Activity, não recicla bitmaps ainda desenhados e não acumula seis artes.
+ */
+internal class WelcomeVitralCache {
+    internal data class Key(val spec: WelcomeVitralSpec, val width: Int, val height: Int, val retry: Int)
+    private var entry: Pair<Key, WelcomeVitralFrame>? = null
+    fun get(key: Key): WelcomeVitralFrame? = entry?.takeIf { it.first == key }?.second
+    fun put(key: Key, frame: WelcomeVitralFrame) { entry = key to frame }
+}
+
+internal val sharedWelcomeVitralCache = WelcomeVitralCache()
+
+internal sealed interface WelcomeVitralLoadState {
+    data object Loading : WelcomeVitralLoadState
+    data object Unavailable : WelcomeVitralLoadState
+    data class Ready(val frame: WelcomeVitralFrame) : WelcomeVitralLoadState
+}
+
+/** Distingue carregamento de falha real. A última arte válida sobrevive à navegação.
+ * Chaves de tema, dimensões e tentativa impedem exibir um frame obsoleto.
  */
 @Composable
 internal fun rememberWelcomeVitralFrame(
@@ -66,17 +82,30 @@ internal fun rememberWelcomeVitralFrame(
     buildType: String = BuildConfig.BUILD_TYPE,
     retry: Int = 0,
     loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap? = ::decodeWelcomeVitral,
-): WelcomeVitralFrame? {
-    val context = LocalContext.current
-    val spec = WelcomeVitralPolicy.resolve(buildType, season) ?: return null
-    if (targetWidth <= 0 || targetHeight <= 0) return null
-    return key(context, spec, targetWidth, targetHeight, retry, loader) {
-        val frame by produceState<WelcomeVitralFrame?>(initialValue = null) {
-            val bitmap = withContext(Dispatchers.IO) {
-                loader(context, spec, targetWidth, targetHeight)
+    cache: WelcomeVitralCache? = if (loader == ::decodeWelcomeVitral) sharedWelcomeVitralCache else null,
+): WelcomeVitralLoadState {
+    val context = LocalContext.current.applicationContext
+    val spec = WelcomeVitralPolicy.resolve(buildType, season) ?: return WelcomeVitralLoadState.Unavailable
+    if (targetWidth <= 0 || targetHeight <= 0) return WelcomeVitralLoadState.Loading
+    val cacheKey = WelcomeVitralCache.Key(spec, targetWidth, targetHeight, retry)
+    return key(context, cacheKey, loader, cache) {
+        val cached = cache?.get(cacheKey)
+        val initial: WelcomeVitralLoadState = cached?.let { WelcomeVitralLoadState.Ready(it) }
+            ?: WelcomeVitralLoadState.Loading
+        val state by produceState(initialValue = initial) {
+            if (cached == null) {
+                val bitmap = withContext(Dispatchers.IO) {
+                    loader(context, spec, targetWidth, targetHeight)
+                }
+                if (bitmap == null) {
+                    value = WelcomeVitralLoadState.Unavailable
+                } else {
+                    val frame = WelcomeVitralFrame(spec, bitmap)
+                    cache?.put(cacheKey, frame)
+                    value = WelcomeVitralLoadState.Ready(frame)
+                }
             }
-            value = bitmap?.let { WelcomeVitralFrame(spec, it) }
         }
-        frame
+        state
     }
 }

@@ -35,6 +35,10 @@ import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import androidx.compose.ui.graphics.ImageBitmap
 
 class WelcomeVitralUiTest {
     @get:Rule val compose = createComposeRule()
@@ -95,10 +99,49 @@ class WelcomeVitralUiTest {
             WelcomeVitralEntry({ creates++ }, {}, season = Season.ADVENT, buildType = "qaGeral",
                 loader = { _, _, _, _ -> null })
         }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag("atrio-welcome-create").fetchSemanticsNodes().size == 1
+        }
         compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
         compose.onNodeWithTag("atrio-welcome-login").assertExists()
         compose.onNodeWithTag("atrio-welcome-season-boas_vindas_vitral_advento.webp").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, creates) }
+    }
+
+    @Test fun loadingNeverShowsOldWelcomeAndReturnReusesTheFrame() {
+        val visible = mutableStateOf(true)
+        val cache = WelcomeVitralCache()
+        val release = CountDownLatch(1)
+        val calls = AtomicInteger()
+        val loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap? = { _, _, _, _ ->
+            calls.incrementAndGet()
+            check(release.await(10, TimeUnit.SECONDS))
+            ImageBitmap(20, 40)
+        }
+        try {
+            compose.setContent {
+                if (visible.value) WelcomeVitralEntry({}, {}, season = Season.ADVENT,
+                    buildType = "qaGeral", loader = loader, cache = cache)
+            }
+            compose.onNodeWithTag("atrio-welcome-loading").assertExists()
+            compose.onNodeWithTag("atrio-signup-welcome").assertDoesNotExist()
+            compose.onNodeWithTag("atrio-welcome-create").assertDoesNotExist()
+            release.countDown()
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("atrio-welcome-vitral", useUnmergedTree = true)
+                    .fetchSemanticsNodes().size == 1
+            }
+            repeat(3) {
+                compose.runOnIdle { visible.value = false }
+                compose.onNodeWithTag("atrio-welcome-vitral", useUnmergedTree = true).assertDoesNotExist()
+                compose.runOnIdle { visible.value = true }
+                compose.onNodeWithTag("atrio-welcome-vitral", useUnmergedTree = true).assertExists()
+                compose.onNodeWithTag("atrio-welcome-loading").assertDoesNotExist()
+            }
+            assertEquals(1, calls.get())
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test fun nonQaNeverCallsTheLoader() {
@@ -165,6 +208,19 @@ class WelcomeVitralUiTest {
             compose.onNodeWithText("Como você quer participar?").assertExists()
             compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
             waitForTheme(season)
+            // Repetir a navegação com o botão Voltar físico do Android.
+            compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
+            compose.onNodeWithText("Sou católico(a)").performScrollTo().performClick()
+            compose.onNodeWithTag("atrio-auth-name").performScrollTo().assertIsDisplayed()
+            repeat(2) {
+                ParcelFileDescriptor.AutoCloseInputStream(
+                    InstrumentationRegistry.getInstrumentation().uiAutomation
+                        .executeShellCommand("input keyevent 4")
+                ).use { it.readBytes() }
+                compose.waitForIdle()
+            }
+            waitForTheme(season)
+            compose.onNodeWithTag("atrio-welcome-loading").assertDoesNotExist()
             previous = season
         }
     }
