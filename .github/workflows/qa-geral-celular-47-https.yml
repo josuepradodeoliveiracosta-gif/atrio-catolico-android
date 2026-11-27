@@ -116,7 +116,7 @@ jobs:
           hash="$(sha256sum < "$work/signed.apk" | cut -d' ' -f1)"
           python3 -m scripts.qa_geral_celular_round47 proof candidate "$CANDIDATE_SHA" "$CANDIDATE_TREE" "$hash" "$cert" "$work/signed.apk" --build-tools "$ANDROID_HOME/build-tools/36.0.0"
           echo "Ensaio descartável aprovado; nenhuma assinatura permanente utilizada."
-  
+
   build:
     if: github.event_name == 'workflow_dispatch' && inputs.confirm_delivery && inputs.source_sha == 'cf7b24db322699d1b132dbfd1084021274456c47' && github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/main' && github.ref_protected && github.run_attempt == 1 && github.actor == 'josuepradodeoliveiracosta-gif'
     runs-on: ubuntu-latest
