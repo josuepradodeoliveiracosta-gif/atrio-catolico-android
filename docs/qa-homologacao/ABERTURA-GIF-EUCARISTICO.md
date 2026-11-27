@@ -1,6 +1,6 @@
 # Abertura eucarística — GIF convertido para MP4
 
-Proposta em rascunho; não integrar antes da troca do binário e da homologação. A implementação experimental do decodificador GIF foi revertida nesta branch para reaproveitar o VideoView original. O arquivo MP4 antigo permanece até a substituição efetiva.
+Mídia eucarística enviada e identificada pelo blob esperado. A implementação experimental do decodificador GIF foi revertida para reaproveitar o VideoView original. A integração depende dos checks e da revisão.
 
 ## Mídia candidata
 
@@ -13,7 +13,7 @@ Proposta em rascunho; não integrar antes da troca do binário e da homologaçã
 
 ## Validação obrigatória antes de integrar
 
-- [ ] Conferir o blob do novo MP4 no destino exato.
+- [x] Novo MP4 enviado com o blob esperado; confirmar o caminho no head da PR.
 - [ ] Compilar e executar os testes existentes de abertura.
 - [ ] Conferir tela 9:16 e 20:9, modo offline, Pular, Voltar, pausa/retorno e restauração das barras.
 - [ ] Conferir abertura em aparelho Android, sem áudio e sem regressão na autenticação.
