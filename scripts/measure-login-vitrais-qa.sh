@@ -16,7 +16,7 @@ scope=login
 base_sha=be1756ff036efdde1aa6529a6268dfe5951d77a3
 if [[ -f docs/vitrais-cadastro.sha256 ]]; then
   scope=cadastro
-  base_sha=7f712281057eb6d2d477211b5b7903565d62a954
+  base_sha=45a77c9007697e6a8aee5709b3a9c0ace17f4dd2
 fi
 report=qa-android-suite-results/$scope-vitrais-metrics
 mkdir -p "$report"

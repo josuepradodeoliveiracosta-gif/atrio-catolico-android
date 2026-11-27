@@ -167,7 +167,14 @@ class EmailVerificationAndroidUiTest {
         waitForTag("atrio-auth-toggle")
         compose.onNodeWithTag("atrio-auth-toggle").performClick()
         waitForTag("atrio-auth-name")
-        compose.onNodeWithTag("atrio-auth-vitral").assertExists()
+        if (registrationVitraisEnabled(BuildConfig.BUILD_TYPE)) {
+            compose.onNodeWithTag("atrio-registration-backdrop").assertExists()
+            compose.onNodeWithTag("atrio-auth-vitral").assertDoesNotExist()
+            val season = LiturgicalCalendarBR.day(java.time.LocalDate.now()).season
+            waitForTag("atrio-registration-vitral-${season.name}")
+        } else {
+            compose.onNodeWithTag("atrio-auth-vitral").assertExists()
+        }
         compose.onNodeWithTag("atrio-auth-privacy").assertExists()
         compose.onNodeWithTag("atrio-auth-name").performTextInput("Maria QA")
         compose.onNodeWithTag("atrio-auth-email").performTextInput(email)
