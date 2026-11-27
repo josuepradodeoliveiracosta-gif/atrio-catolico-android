@@ -462,6 +462,20 @@ if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
       qa_failed=1
       echo "Falha ao coletar capturas das boas-vindas"
     fi
+    mkdir -p qa-android-suite-results/participation-preview
+    adb logcat -d -s AtrioQaParticipation:I '*:S' > qa-android-suite-results/participation-decode.log
+    if [[ "$(grep -c 'decode=' qa-android-suite-results/participation-decode.log || true)" -lt 6 ]]; then
+      qa_failed=1
+      echo "Diagnosticos de participacao incompletos"
+    fi
+    if ! adb pull /data/local/tmp/atrio-participation-preview/. qa-android-suite-results/participation-preview/; then
+      qa_failed=1
+      echo "Falha ao coletar capturas da participacao"
+    fi
+    if [[ "$(find qa-android-suite-results/participation-preview -maxdepth 1 -name '*.png' | wc -l)" -lt 12 ]]; then
+      qa_failed=1
+      echo "Capturas de participacao incompletas"
+    fi
     mkdir -p qa-android-suite-results/login-preview
     if ! adb pull /data/local/tmp/atrio-login-preview/. qa-android-suite-results/login-preview/; then
       qa_failed=1

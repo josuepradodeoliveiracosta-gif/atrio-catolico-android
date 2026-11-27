@@ -8,6 +8,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -21,7 +22,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Synthetic bitmaps only: real artwork, TalkBack and physical evidence are separate gates. */
+/** Real QA resources and synthetic failure injection. Physical and TalkBack evidence remain separate. */
 class ParticipationVitralUiTest {
     @get:Rule val compose = createComposeRule()
     private val seasons = listOf(Season.ADVENT, Season.CHRISTMAS, Season.ORDINARY,
@@ -91,6 +92,126 @@ class ParticipationVitralUiTest {
             }
         }
         compose.runOnIdle { assertEquals(18, calls) }
+    }
+
+    @Test fun realAssetsKeepAllChoicesReachableInBothModes() {
+        org.junit.Assume.assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
+        val selected = mutableStateOf(seasons.first())
+        val dark = mutableStateOf(false)
+        val visit = mutableStateOf(0)
+        var calls = 0
+        compose.setContent {
+            val config = android.content.res.Configuration(androidx.compose.ui.platform.LocalConfiguration.current).apply {
+                uiMode = (uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK.inv()) or
+                    (if (dark.value) android.content.res.Configuration.UI_MODE_NIGHT_YES else android.content.res.Configuration.UI_MODE_NIGHT_NO)
+            }
+            CompositionLocalProvider(androidx.compose.ui.platform.LocalConfiguration provides config) {
+                AtrioTheme {
+                    key(visit.value) {
+                        ParticipationVitralEntry({ calls++ }, {}, selected.value)
+                    }
+                }
+            }
+        }
+        for (night in listOf(false, true)) {
+            for (season in seasons) {
+                for (index in labels.indices) {
+                    compose.runOnIdle { dark.value = night; selected.value = season; visit.value++ }
+                    awaitTheme(season)
+                    val choice = compose.onNodeWithTag("atrio-participation-choice-$index")
+                    choice.performScrollTo().assertIsDisplayed().assertIsEnabled().assertTextContains(labels[index])
+                    if (index == 0) captureParticipation(season.name.lowercase(java.util.Locale.ROOT) +
+                        (if (night) "-escuro" else "-claro"))
+                    choice.performClick()
+                    choice.assertIsNotEnabled()
+                }
+            }
+        }
+        compose.runOnIdle { assertEquals(36, calls) }
+    }
+
+    @Test fun realNavigationAllSeasonsAndChoices() {
+        org.junit.Assume.assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
+        val app = com.google.firebase.FirebaseApp.getInstance()
+        check(BuildConfig.DEBUG && app.options.projectId == "demo-atrio-v11")
+        val dates = listOf("2026-11-29", "2026-12-25", "2026-11-28",
+            "2027-02-10", "2027-03-26", "2027-03-28")
+        val day = mutableStateOf(LiturgicalCalendarBR.day(java.time.LocalDate.parse(dates.first())))
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalLiturgicalDay provides day.value) {
+                    OnlineAuthScreen(com.google.firebase.auth.FirebaseAuth.getInstance(app),
+                        com.google.firebase.firestore.FirebaseFirestore.getInstance(app),
+                        showWelcomeInIsolatedQa = true)
+                }
+            }
+        }
+        fun waitWelcome(season: Season) {
+            val asset = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season)).assetName.substringAfterLast('/')
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("atrio-welcome-season-" + asset, useUnmergedTree = true)
+                    .fetchSemanticsNodes().size == 1
+            }
+        }
+        for ((season, date) in seasons.zip(dates)) {
+            compose.runOnIdle { day.value = LiturgicalCalendarBR.day(java.time.LocalDate.parse(date)) }
+            waitWelcome(season)
+            compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
+            for (index in labels.indices) {
+                awaitTheme(season)
+                compose.onNodeWithTag("atrio-participation-choice-$index").performScrollTo().performClick()
+                compose.onNodeWithTag("atrio-auth-name").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
+            }
+            awaitTheme(season)
+            compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
+            waitWelcome(season)
+            compose.onNodeWithTag("atrio-welcome-login").performScrollTo().performClick()
+            compose.onNodeWithText("Entrar na comunidade").assertExists()
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+                    .executeShellCommand("input keyevent 4")
+            ).use { it.readBytes() }
+            waitWelcome(season)
+        }
+    }
+
+    @Test fun recordParticipationDecodeDiagnostics() {
+        org.junit.Assume.assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        for (season in seasons) {
+            val spec = requireNotNull(ParticipationVitralPolicy.resolve("qaGeral", season))
+            val times = mutableListOf<Long>()
+            val sizes = mutableListOf<Int>()
+            repeat(4) {
+                val start = android.os.SystemClock.elapsedRealtimeNanos()
+                val bitmap = requireNotNull(decodeWelcomeVitral(context, spec, 1080, 2461))
+                times += (android.os.SystemClock.elapsedRealtimeNanos() - start) / 1000
+                val native = bitmap.asAndroidBitmap()
+                try { sizes += native.allocationByteCount } finally { native.recycle() }
+            }
+            android.util.Log.i("AtrioQaParticipation",
+                "decode=${season.name} first_us=${times.first()} repeated_median_us=${times.drop(1).sorted()[1]} max_bitmap_bytes=${sizes.maxOrNull()}")
+        }
+    }
+
+    private fun captureParticipation(name: String) {
+        if (android.os.Build.VERSION.SDK_INT < 31) return
+        require(name.matches(Regex("[a-z0-9-]+")))
+        compose.waitForIdle()
+        val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        val dir = "/data/local/tmp/atrio-participation-preview"
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("mkdir -p $dir")).use { it.readBytes() }
+        val bitmap = automation.takeScreenshot() ?: error("Captura de participação indisponível")
+        try {
+            val fds = automation.executeShellCommandRw("dd of=$dir/$name.png")
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(fds[0]).use { output ->
+                android.os.ParcelFileDescriptor.AutoCloseOutputStream(fds[1]).use { input ->
+                    check(bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, input))
+                }
+                output.readBytes()
+            }
+        } finally { bitmap.recycle() }
     }
 
     @Test fun missingResourceKeepsAllActionsAndReturn() {

@@ -36,3 +36,7 @@ Pendência bloqueante: as seis molduras limpas ainda não foram produzidas nem a
 ## Marco 2 — exportacao das seis artes
 
 Seis molduras novas sem controles rasterizados, WebP 790 x 1800, qualidade de compressao 87. Manifesto: docs/vitrais-participacao.sha256. Teste de recursos reais integrado a ParticipationVitralUiTest. Aprovacao visual, recortes, contraste sobre a arte e homologacao fisica continuam pendentes; nao liberar antes dos gates.
+
+## Marco 4 — validação com recursos reais
+
+No commit 09ea2077a9cd36c877d300673434c1c5ab493848, a suíte ParticipationVitralUiTest aprovou cinco testes, incluindo hashes e dimensões. A matriz completa ainda não estava aprovada: EmailVerificationAndroidUiTest.tresOpcoesDeParticipacaoAbremOCadastroEVoltamParaAEscolha não encontrou o título de login após voltar às boas-vindas. A causa ainda não está comprovada; não remover nem enfraquecer a asserção. Acrescentados testes de 36 escolhas com artes reais nos dois modos, 18 escolhas na navegação real isolada com datas fixas, 12 capturas de tela e diagnósticos de decodificação por tema. Aguardar resultados e revisar visualmente; TalkBack, offline explícito, recortes de tela curta com arte real e desempenho físico ainda pendentes. Medidas de decodificação em emulador não representam tempo de abertura ou memória total do app.
