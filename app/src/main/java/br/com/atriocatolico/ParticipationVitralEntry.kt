@@ -16,7 +16,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -67,8 +66,13 @@ internal fun ParticipationVitralEntry(
             .testTag("atrio-participation"),
         contentAlignment = Alignment.TopCenter,
     ) {
-        val width = maxWidth.coerceAtMost(440.dp)
-        val artHeight = width * (1800f / 790f)
+        val availableWidth = maxWidth.coerceAtMost(440.dp)
+        val viewportHeight = maxHeight
+        val ratio = 1800f / 790f
+        val fittedWidth = availableWidth.coerceAtMost(viewportHeight / ratio)
+        // Avoid squeezing controls on short screens; allow vertical scrolling instead.
+        val width = if (fittedWidth >= 300.dp) fittedWidth else availableWidth
+        val artHeight = width * ratio
         val density = LocalDensity.current
         val frame = rememberParticipationVitralFrame(
             with(density) { width.roundToPx() },
@@ -79,24 +83,30 @@ internal fun ParticipationVitralEntry(
         val title = palette?.let { Color(it.title) } ?: defaultTitle
         val outline = palette?.let { Color(it.secondaryOutline) } ?: defaultOutline
         val surface = palette?.let { Color(it.readingSurface) } ?: defaultBackground
-        Box(
-            Modifier.fillMaxSize().clipToBounds().background(defaultBackground),
-            contentAlignment = Alignment.TopCenter,
+        Column(
+            Modifier.fillMaxSize().background(defaultBackground).verticalScroll(scroll)
+                .testTag("atrio-participation-scroll"),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // The artwork has no semantics and never intercepts touch.
+            Box(
+                Modifier.width(width).heightIn(min = maxOf(viewportHeight, if (frame != null) artHeight else 0.dp))
+                    .background(defaultBackground),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                // The artwork has no spoken semantics and never intercepts touch.
             if (frame != null) {
                 Image(
                     bitmap = frame.bitmap,
                     contentDescription = null,
                     modifier = Modifier.width(width).height(artHeight)
                         .testTag("atrio-participation-season-" + frame.spec.assetName.substringAfterLast('/')),
-                    contentScale = ContentScale.Crop,
+                    contentScale = ContentScale.Fit,
                     alignment = Alignment.TopCenter,
                 )
             }
             // Stable composition for controls even when the image or season changes.
             Column(
-                Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 24.dp, vertical = 24.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -139,6 +149,7 @@ internal fun ParticipationVitralEntry(
                         ) { Text(label, textAlign = TextAlign.Center) }
                     }
                 }
+            }
             }
         }
     }

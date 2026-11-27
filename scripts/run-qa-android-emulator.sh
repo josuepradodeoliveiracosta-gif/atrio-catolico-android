@@ -255,6 +255,7 @@ PY
     run_suite "$ATRIO_QA_SUITE"
   fi
   run_suite WelcomeVitralTalkBackUiTest
+  run_suite ParticipationVitralTalkBackUiTest
   adb logcat -d -s AtrioQaProfileV3:I '*:S' \
     > qa-android-suite-results/profile-v3-offline.log
   if [[ "${ATRIO_QA_PROFILE_V3_DISCUSSIONS_HTTP:-}" == 1 ]]; then
@@ -448,7 +449,11 @@ if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == tru
 else
   run_suite WelcomeVitralUiTest
 fi
-run_suite ParticipationVitralUiTest
+if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == true ]]; then
+  run_suite ParticipationVitralUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+else
+  run_suite ParticipationVitralUiTest
+fi
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   if [[ "$qa_apk" == "qaGeral" ]]; then

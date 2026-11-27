@@ -176,6 +176,69 @@ class ParticipationVitralUiTest {
         }
     }
 
+    @Test fun realArtsOnShortScreenWithLargeText() {
+        org.junit.Assume.assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
+        val selected = mutableStateOf(seasons.first())
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                Box(Modifier.width(320.dp).height(440.dp)) {
+                    AtrioTheme { ParticipationVitralEntry({}, {}, selected.value) }
+                }
+            }
+        }
+        for (season in seasons) {
+            compose.runOnIdle { selected.value = season }
+            awaitTheme(season)
+            for ((index, label) in labels.withIndex()) {
+                compose.onNodeWithTag("atrio-participation-choice-$index")
+                    .performScrollTo().assertIsDisplayed().assertIsEnabled()
+                    .assertTextContains(label).assertHeightIsAtLeast(48.dp)
+            }
+            compose.onNodeWithTag("atrio-auth-back").performScrollTo().assertIsDisplayed()
+        }
+    }
+
+    @Test fun realArtsLoadWithoutNetwork() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        org.junit.Assume.assumeTrue(androidx.test.platform.app.InstrumentationRegistry.getArguments()
+            .getString("atrioOfflineVitralQa") == "true")
+        val app = com.google.firebase.FirebaseApp.getInstance()
+        check(BuildConfig.BUILD_TYPE == "qaGeral" && BuildConfig.DEBUG &&
+            app.options.projectId == "demo-atrio-v11" &&
+            android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Somente emulador QA isolado" }
+        val network = instrumentation.targetContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
+            as android.net.ConnectivityManager
+        fun shell(command: String): String =
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation
+                .executeShellCommand(command)).use { it.bufferedReader().readText().trim() }
+        val wifi = shell("settings get global wifi_on")
+        val mobile = shell("settings get global mobile_data")
+        val airplane = shell("settings get global airplane_mode_on")
+        check(wifi in setOf("0", "1") && mobile in setOf("0", "1") && airplane in setOf("0", "1"))
+        try {
+            shell("cmd connectivity airplane-mode enable")
+            shell("svc wifi disable")
+            shell("svc data disable")
+            compose.waitUntil(15_000) { network.activeNetwork == null }
+            val selected = mutableStateOf(seasons.first())
+            compose.setContent { AtrioTheme { ParticipationVitralEntry({}, {}, selected.value) } }
+            for (season in seasons) {
+                compose.runOnIdle { selected.value = season }
+                awaitTheme(season)
+                for (index in labels.indices) {
+                    compose.onNodeWithTag("atrio-participation-choice-$index")
+                        .performScrollTo().assertIsDisplayed().assertIsEnabled()
+                }
+                assertNull("Rede deve permanecer desconectada", network.activeNetwork)
+            }
+        } finally {
+            shell("cmd connectivity airplane-mode " + if (airplane == "1") "enable" else "disable")
+            shell("svc wifi " + if (wifi == "1") "enable" else "disable")
+            shell("svc data " + if (mobile == "1") "enable" else "disable")
+        }
+    }
+
     @Test fun recordParticipationDecodeDiagnostics() {
         org.junit.Assume.assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
         val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
