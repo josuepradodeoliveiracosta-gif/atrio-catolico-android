@@ -51,19 +51,16 @@ internal fun WelcomeVitralEntry(
             season = season, buildType = buildType, loader = loader, cache = cache,
         )
         when (frame) {
-            WelcomeVitralLoadState.Loading -> Box(
-                Modifier.fillMaxSize().background(if (isSystemInDarkTheme()) Color(0xFF20171A) else Color(spec.readingSurface))
-                    .testTag("atrio-welcome-loading"), contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator(color = if (isSystemInDarkTheme()) Color(0xFFFFB2C6) else Color(spec.accent)) }
             WelcomeVitralLoadState.Unavailable -> RegistrationWelcomeDefault(onCreate, onLogin)
-            is WelcomeVitralLoadState.Ready -> WelcomeVitralScreen(frame.frame, onCreate, onLogin)
+            else -> WelcomeVitralScreen(spec, (frame as? WelcomeVitralLoadState.Ready)?.frame?.bitmap,
+                onCreate, onLogin)
         }
     }
 }
 
 @Composable
-private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit, onLogin: () -> Unit) {
-    val p = frame.spec
+private fun WelcomeVitralScreen(p: WelcomeVitralSpec, bitmap: ImageBitmap?,
+    onCreate: () -> Unit, onLogin: () -> Unit) {
     val surface = Color(p.readingSurface)
     val accent = Color(p.accent)
     val ink = Color(p.body)
@@ -86,12 +83,18 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
         val artHeight = width * (1800f / 790f)
         Column(Modifier.width(width).verticalScroll(scroll)) {
             Box(Modifier.fillMaxWidth().heightIn(min = artHeight).background(surface)
-                .testTag("atrio-welcome-season-" + p.assetName.substringAfterLast('/'))) {
-                Image(
-                    bitmap = frame.bitmap, contentDescription = null,
-                    modifier = Modifier.fillMaxWidth().height(artHeight).testTag("atrio-welcome-vitral"),
-                    contentScale = ContentScale.Fit, alignment = Alignment.TopCenter,
-                )
+                .testTag(if (bitmap == null) "atrio-welcome-loading"
+                    else "atrio-welcome-season-" + p.assetName.substringAfterLast('/'))) {
+                // A mesma estrutura, ações e paleta permanecem na composição ao carregar.
+                Box(Modifier.fillMaxWidth().height(artHeight)) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap, contentDescription = null,
+                            modifier = Modifier.fillMaxSize().testTag("atrio-welcome-vitral"),
+                            contentScale = ContentScale.Fit, alignment = Alignment.TopCenter,
+                        )
+                    }
+                }
                 Column(Modifier.fillMaxWidth()) {
                     Spacer(Modifier.height(artHeight * 0.325f))
                     Surface(

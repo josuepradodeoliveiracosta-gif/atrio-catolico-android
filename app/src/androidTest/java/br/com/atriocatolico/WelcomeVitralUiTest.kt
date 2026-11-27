@@ -100,7 +100,9 @@ class WelcomeVitralUiTest {
                 loader = { _, _, _, _ -> null })
         }
         compose.waitUntil(10_000) {
-            compose.onAllNodesWithTag("atrio-welcome-create").fetchSemanticsNodes().size == 1
+            compose.onAllNodesWithTag("atrio-welcome-create").fetchSemanticsNodes().size == 1 &&
+                compose.onAllNodesWithTag("atrio-welcome-loading", useUnmergedTree = true)
+                    .fetchSemanticsNodes().isEmpty()
         }
         compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
         compose.onNodeWithTag("atrio-welcome-login").assertExists()
@@ -124,8 +126,9 @@ class WelcomeVitralUiTest {
                     buildType = "qaGeral", loader = loader, cache = cache)
             }
             compose.onNodeWithTag("atrio-welcome-loading").assertExists()
-            compose.onNodeWithTag("atrio-signup-welcome").assertDoesNotExist()
-            compose.onNodeWithTag("atrio-welcome-create").assertDoesNotExist()
+            compose.onNodeWithTag("atrio-welcome-vitral", useUnmergedTree = true).assertDoesNotExist()
+            compose.onNodeWithTag("atrio-welcome-create").assertExists().assertIsEnabled()
+            compose.onNodeWithTag("atrio-welcome-login").assertExists().assertIsEnabled()
             release.countDown()
             compose.waitUntil(10_000) {
                 compose.onAllNodesWithTag("atrio-welcome-vitral", useUnmergedTree = true)
