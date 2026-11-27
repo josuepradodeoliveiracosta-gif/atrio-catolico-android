@@ -1,6 +1,8 @@
 package br.com.atriocatolico
 
 import android.graphics.Bitmap
+import android.content.Context
+import android.net.ConnectivityManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.google.firebase.FirebaseApp
@@ -142,7 +144,11 @@ class WelcomeVitralUiTest {
             captureWelcome(label + "-acoes")
             compose.onNodeWithTag("atrio-welcome-login").performClick()
             compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertIsDisplayed()
-            compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
+            // LOGIN não possui RegistrationCompactHeader. Exercitar BackHandler real.
+            ParcelFileDescriptor.AutoCloseInputStream(
+                InstrumentationRegistry.getInstrumentation().uiAutomation
+                    .executeShellCommand("input keyevent 4")
+            ).use { it.readBytes() }
             waitForTheme(season)
             compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
             compose.onNodeWithText("Como você quer participar?").assertExists()
@@ -153,6 +159,47 @@ class WelcomeVitralUiTest {
             compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
             waitForTheme(season)
             previous = season
+        }
+    }
+
+    @Test fun allSixWelcomeArtsLoadWithNetworkDisconnected() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        assumeTrue(InstrumentationRegistry.getArguments().getString("atrioOfflineVitralQa") == "true")
+        val app = FirebaseApp.getInstance()
+        check(BuildConfig.BUILD_TYPE == "qaGeral" && BuildConfig.DEBUG &&
+            app.options.projectId == "demo-atrio-v11" &&
+            Build.HARDWARE in setOf("ranchu", "goldfish")) { "Somente emulador QA isolado" }
+        val network = instrumentation.targetContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        fun shell(command: String): String =
+            ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation
+                .executeShellCommand(command)).use { it.bufferedReader().readText().trim() }
+        val wifi = shell("settings get global wifi_on")
+        val mobile = shell("settings get global mobile_data")
+        val airplane = shell("settings get global airplane_mode_on")
+        check(wifi in setOf("0", "1") && mobile in setOf("0", "1") &&
+            airplane in setOf("0", "1")) { "Estado inicial de rede desconhecido" }
+        try {
+            shell("cmd connectivity airplane-mode enable")
+            shell("svc wifi disable")
+            shell("svc data disable")
+            compose.waitUntil(15_000) { network.activeNetwork == null }
+            val selected = mutableStateOf(seasons.first())
+            compose.setContent { AtrioTheme { WelcomeVitralEntry({}, {}, season = selected.value) } }
+            for (season in seasons) {
+                compose.runOnIdle { selected.value = season }
+                val asset = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season)).assetName.substringAfterLast('/')
+                compose.waitUntil(10_000) {
+                    compose.onAllNodesWithTag("atrio-welcome-season-" + asset, useUnmergedTree = true)
+                        .fetchSemanticsNodes().size == 1
+                }
+                compose.onNodeWithTag("atrio-welcome-create").performScrollTo().assertIsDisplayed()
+                compose.onNodeWithTag("atrio-welcome-login").performScrollTo().assertIsDisplayed()
+                assertNull("Rede deve permanecer desconectada", network.activeNetwork)
+            }
+        } finally {
+            shell("cmd connectivity airplane-mode " + if (airplane == "1") "enable" else "disable")
+            shell("svc wifi " + if (wifi == "1") "enable" else "disable")
+            shell("svc data " + if (mobile == "1") "enable" else "disable")
         }
     }
 

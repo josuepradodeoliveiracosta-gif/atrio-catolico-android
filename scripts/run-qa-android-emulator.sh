@@ -442,7 +442,11 @@ if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == tru
 else
   run_suite LoginLiturgicalBackdropUiTest
 fi
-run_suite WelcomeVitralUiTest
+if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == true ]]; then
+  run_suite WelcomeVitralUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+else
+  run_suite WelcomeVitralUiTest
+fi
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   if [[ "$qa_apk" == "qaGeral" ]]; then
