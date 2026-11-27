@@ -6,6 +6,17 @@ import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -13,7 +24,7 @@ import br.com.atriocatolico.LiturgicalCalendarBR.Season
 import org.junit.Rule
 import org.junit.Test
 
-/** Sem Firebase: verifica a troca dos seis recursos locais e o fallback sólido. */
+/** Recursos locais e formulário real; nenhum pedido de autenticação ou recuperação é enviado. */
 class LoginLiturgicalBackdropUiTest {
     @get:Rule val compose = createComposeRule()
 
@@ -51,6 +62,42 @@ class LoginLiturgicalBackdropUiTest {
             }
             previous = season
         }
+    }
+
+    @Test fun loginFormRemainsReachableAtLargeFontAndCompactViewport() {
+        val app = FirebaseApp.getInstance()
+        check(BuildConfig.BUILD_TYPE == "qaGeral" && BuildConfig.DEBUG &&
+            app.options.projectId == "demo-atrio-v11") { "Somente QA isolado" }
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                AtrioTheme {
+                    Box(Modifier.width(320.dp).height(440.dp)) {
+                        OnlineAuthScreen(FirebaseAuth.getInstance(app),
+                            FirebaseFirestore.getInstance(app))
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("atrio-login-backdrop").assertIsDisplayed()
+        compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("atrio-auth-password").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("atrio-auth-submit").performScrollTo().assertIsNotEnabled()
+        // Sem e-mail válido, a ação deve apenas exibir o erro local.
+        compose.onNodeWithText("Esqueci minha senha").performScrollTo().performClick()
+        compose.onNodeWithTag("atrio-auth-error").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("atrio-auth-email").performScrollTo()
+            .performTextInput("teste@qa.invalid")
+        compose.onNodeWithTag("atrio-auth-password").performScrollTo()
+            .performTextInput("SenhaFicticiaSomenteQA")
+        compose.onNodeWithContentDescription("Mostrar senha").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Ocultar senha").assertExists()
+        compose.onNodeWithContentDescription("Ocultar senha").performClick()
+        compose.onNodeWithTag("atrio-auth-submit").performScrollTo().assertIsEnabled()
+        // Não submeter o login; verificar apenas a navegação e o isolamento visual do cadastro.
+        compose.onNodeWithTag("atrio-auth-toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("atrio-login-backdrop").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-auth-name").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun failedDecodeLeavesSolidBackdropAvailable() {
