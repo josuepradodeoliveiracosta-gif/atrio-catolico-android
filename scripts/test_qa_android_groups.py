@@ -7,12 +7,13 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 GROUPS = {
     "profiles": ["GuardianSessionUiTest","ProfileLayoutUiTest","ProfilePhotoUiTest","ProfileEditorUiTest","DesignV2UiTest","EmailVerificationAndroidUiTest","PerfilQaSaveEmulatorTest"],
-    "interaction": ["EngagementUiTest","ReactionEmojiUiTest","DiscussionDetailV2UiTest","AtrioTypographyAccessibilityUiTest","LoginLiturgicalBackdropUiTest","WelcomeVitralUiTest"],
+    "interaction": ["EngagementUiTest","ReactionEmojiUiTest","DiscussionDetailV2UiTest","AtrioTypographyAccessibilityUiTest","LoginLiturgicalBackdropUiTest","WelcomeVitralUiTest","ParticipationVitralUiTest"],
     "bots": ["ThreeBotsAndroidUiTest","ThreeBotsAuthenticatedAndroidUiTest","ThreeBotsOnlineEmulatorTest","AtrioConversasCompostasEmulatorUiTest","AtrioConversasNavegacaoEmulatorUiTest","AtrioConversasForaDaConfiguracaoEmulatorUiTest","AtrioConversasTrocaContaEmulatorUiTest"],
 }
 FOCAL_ROUTES = {
     'if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then': (
         "WelcomeVitralTalkBackUiTest",
+        "ParticipationVitralTalkBackUiTest",
     ),
     'if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then': (
         "GuardianV2UiTest",

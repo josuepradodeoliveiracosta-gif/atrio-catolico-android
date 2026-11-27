@@ -160,7 +160,7 @@ run_suite() {
       profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
       profiles:PerfilQaSaveEmulatorTest|\
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
-      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|interaction:WelcomeVitralUiTest|\
+      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|interaction:WelcomeVitralUiTest|interaction:ParticipationVitralUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
       bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
       bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest|\
@@ -255,6 +255,7 @@ PY
     run_suite "$ATRIO_QA_SUITE"
   fi
   run_suite WelcomeVitralTalkBackUiTest
+  run_suite ParticipationVitralTalkBackUiTest
   adb logcat -d -s AtrioQaProfileV3:I '*:S' \
     > qa-android-suite-results/profile-v3-offline.log
   if [[ "${ATRIO_QA_PROFILE_V3_DISCUSSIONS_HTTP:-}" == 1 ]]; then
@@ -448,6 +449,11 @@ if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == tru
 else
   run_suite WelcomeVitralUiTest
 fi
+if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == true ]]; then
+  run_suite ParticipationVitralUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+else
+  run_suite ParticipationVitralUiTest
+fi
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   if [[ "$qa_apk" == "qaGeral" ]]; then
@@ -460,6 +466,20 @@ if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
     if ! adb pull /data/local/tmp/atrio-welcome-preview/. qa-android-suite-results/welcome-preview/; then
       qa_failed=1
       echo "Falha ao coletar capturas das boas-vindas"
+    fi
+    mkdir -p qa-android-suite-results/participation-preview
+    adb logcat -d -s AtrioQaParticipation:I '*:S' > qa-android-suite-results/participation-decode.log
+    if [[ "$(grep -c 'decode=' qa-android-suite-results/participation-decode.log || true)" -lt 6 ]]; then
+      qa_failed=1
+      echo "Diagnosticos de participacao incompletos"
+    fi
+    if ! adb pull /data/local/tmp/atrio-participation-preview/. qa-android-suite-results/participation-preview/; then
+      qa_failed=1
+      echo "Falha ao coletar capturas da participacao"
+    fi
+    if [[ "$(find qa-android-suite-results/participation-preview -maxdepth 1 -name '*.png' | wc -l)" -lt 12 ]]; then
+      qa_failed=1
+      echo "Capturas de participacao incompletas"
     fi
     mkdir -p qa-android-suite-results/login-preview
     if ! adb pull /data/local/tmp/atrio-login-preview/. qa-android-suite-results/login-preview/; then
