@@ -2,6 +2,9 @@ package br.com.atriocatolico
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.ParcelFileDescriptor
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -98,6 +101,41 @@ class LoginLiturgicalBackdropUiTest {
         compose.onNodeWithTag("atrio-auth-toggle").performScrollTo().performClick()
         compose.onNodeWithTag("atrio-login-backdrop").assertDoesNotExist()
         compose.onNodeWithTag("atrio-auth-name").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun captureRealLoginAtNormalFont() {
+        val app = FirebaseApp.getInstance()
+        check(BuildConfig.BUILD_TYPE == "qaGeral" && BuildConfig.DEBUG &&
+            app.options.projectId == "demo-atrio-v11") { "Somente QA isolado" }
+        compose.setContent {
+            AtrioTheme {
+                OnlineAuthScreen(FirebaseAuth.getInstance(app), FirebaseFirestore.getInstance(app))
+            }
+        }
+        val season = LiturgicalCalendarBR.day(java.time.LocalDate.now()).season
+        val tag = "atrio-login-vitral-${season.name}"
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("atrio-auth-email").assertIsDisplayed()
+        compose.onNodeWithTag("atrio-auth-password").assertIsDisplayed()
+        compose.waitForIdle()
+        if (Build.VERSION.SDK_INT >= 31) {
+            val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+            val dir = "/data/local/tmp/atrio-login-preview"
+            ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("mkdir -p $dir")).use { it.readBytes() }
+            val bitmap = automation.takeScreenshot() ?: error("Emulador não capturou tela")
+            val name = "login-" + season.name.lowercase(java.util.Locale.ROOT) + ".png"
+            val fds = automation.executeShellCommandRw("dd of=$dir/$name")
+            ParcelFileDescriptor.AutoCloseInputStream(fds[0]).use { output ->
+                ParcelFileDescriptor.AutoCloseOutputStream(fds[1]).use { input ->
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, input))
+                }
+                output.readBytes()
+            }
+            bitmap.recycle()
+        }
     }
 
     @Test fun failedDecodeLeavesSolidBackdropAvailable() {

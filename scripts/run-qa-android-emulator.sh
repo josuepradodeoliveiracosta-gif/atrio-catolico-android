@@ -440,6 +440,13 @@ run_suite AtrioTypographyAccessibilityUiTest
 run_suite LoginLiturgicalBackdropUiTest
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
+  if [[ "$qa_apk" == "qaGeral" ]]; then
+    mkdir -p qa-android-suite-results/login-preview
+    if ! adb pull /data/local/tmp/atrio-login-preview/. qa-android-suite-results/login-preview/; then
+      qa_failed=1
+      echo "Falha ao coletar print do login"
+    fi
+  fi
   mkdir -p qa-android-suite-results/reaction-preview
   if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
     qa_failed=1
