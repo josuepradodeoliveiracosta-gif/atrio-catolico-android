@@ -40,3 +40,20 @@ Reutilizar LocalLiturgicalDay.current.season de LiturgicalTheme.kt e LiturgicalC
 - Entrega: depois de aprovar artes, testes e revisão, integrar por PR. O candidato físico seguinte deverá preservar o APK 48 e todas as suas alterações de QA, incluindo Conversas e Loja, com versionCode superior, mesmo applicationId e certificado QA. Não assinar/publicar até aprovação das barreiras existentes. Sem alteração de produção. Reversão pelo visual padrão completo ou nova versão corretiva com código maior.
 
 Estado: inventário e contrato inicial implementados, exportações limpas e aprovação de arte pendentes. Sem alteração visual, sem compilação assinada ou homologação física. O percentual geral só avança por evidências; a aprovação de um plano não equivale à aprovação do aplicativo.
+
+## Evidência de exportação — 27/11/2026
+
+Seis recriações limpas dos modelos das páginas 13–18 geradas e inspecionadas visualmente, exportadas de PNG 831 × 1893 para WebP RGB 790 × 1800 (qualidade 85, Lanczos). Todos os seis arquivos foram decodificados com sucesso. Total 1.686.748 bytes. O pacote Vitrais_Boas_Vindas_Recursos_QA.zip inclui os seis WebP e o manifesto, SHA-256 2bf5ce971ced77648b7ef5ea79a7c74928ab375bfe42d1d7577c80dfb5a6b78c. Os hashes individuais estão em docs/vitrais-boas-vindas.sha256.
+
+| Tema | Bytes | Menor contraste do destaque | Menor contraste do corpo |
+|---|---:|---:|---:|
+| Advento | 288510 | 6,86:1 | 8,87:1 |
+| Natal | 352802 | 5,60:1 | 8,31:1 |
+| Tempo Comum | 260162 | 5,15:1 | 8,49:1 |
+| Quaresma | 232126 | 5,12:1 | 8,51:1 |
+| Tríduo Pascal | 306806 | 4,15:1 | 6,22:1 |
+| Páscoa | 246342 | 5,65:1 | 11,26:1 |
+
+Medição conservadora pixel a pixel, região central provisória x=[119,671), y=[630,1260), sobre o WebP decodificado. Não representa captura da interface final. O Tríduo não atinge 4,5:1 nessa região para o destaque; exigir superfície protetora de leitura, validar posição real, foco, estado pressionado, fonte ampliada e barras. A arte é uma recriação do modelo, não uma extração literal. Preservar um arco único: zona focal aproximadamente x 25–75%, y 3–32%; evitar cortar essa área. Reservar região de leitura e usar composição alternativa em telas incompatíveis. Aprovação final de arte e validação em aparelho continuam pendentes.
+
+A exportação existe como pacote local; a transferência dos binários para a branch QA ainda precisa ser confirmada. Não integrar esta PR nem ativar a interface até os arquivos estarem no caminho QA, com os seis hashes verificados. Nenhum APK novo gerado.
