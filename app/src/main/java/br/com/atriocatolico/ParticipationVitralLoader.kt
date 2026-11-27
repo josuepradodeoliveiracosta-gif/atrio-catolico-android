@@ -10,6 +10,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import br.com.atriocatolico.LiturgicalCalendarBR.Season
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 private tailrec fun Context.participationActivity(): ComponentActivity? = when (this) {
@@ -53,10 +54,16 @@ internal fun rememberParticipationVitralFrame(
             onDispose { lifecycle?.removeObserver(observer) }
         }
         LaunchedEffect(retry) {
-            val bitmap = withContext(Dispatchers.IO) {
-                loader(context, spec, width, height)
+            // Keep snapshot publication on Android's UI dispatcher, including
+            // when the instrumentation recomposer supplies a custom interceptor.
+            // The potentially expensive decode still runs entirely on IO.
+            withContext(Dispatchers.Main.immediate) {
+                val bitmap = withContext(Dispatchers.IO) {
+                    loader(context, spec, width, height)
+                }
+                ensureActive()
+                frame = bitmap?.let { WelcomeVitralFrame(spec, it) }
             }
-            frame = bitmap?.let { WelcomeVitralFrame(spec, it) }
         }
         frame
     }
