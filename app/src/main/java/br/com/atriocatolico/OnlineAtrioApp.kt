@@ -336,12 +336,16 @@ internal fun OnlineAuthScreen(
         unfocusedSupportingTextColor = formText
     ) else OutlinedTextFieldDefaults.colors()
 
+    val stainedLogin = !registering && loginVitraisEnabled(BuildConfig.BUILD_TYPE)
+    val loginHeadingColor = if (stainedLogin) Color.White else MaterialTheme.colorScheme.onPrimary
+    Box(Modifier.fillMaxSize()) {
+        if (stainedLogin) LoginLiturgicalBackdrop()
     Column(
-        Modifier.fillMaxSize().background(if (registering) formBackground else Wine)
+        Modifier.fillMaxSize().background(if (registering) formBackground else if (stainedLogin) Color.Transparent else Wine)
             .statusBarsPadding().navigationBarsPadding().imePadding()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 24.dp),
-        horizontalAlignment = if (registering) Alignment.CenterHorizontally else Alignment.Start
+        horizontalAlignment = if (registering || stainedLogin) Alignment.CenterHorizontally else Alignment.Start
     ) {
         if (registering) {
             RegistrationCompactHeader(
@@ -351,16 +355,16 @@ internal fun OnlineAuthScreen(
                 enabled = !busy
             )
         } else {
-            Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = Gold)
+            Text("✝", fontFamily = FontFamily.Serif, fontSize = 52.sp, color = if (stainedLogin) Color(0xFFFFD98B) else Gold)
             Text("Átrio Católico", fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold,
-                fontSize = 33.sp, color = MaterialTheme.colorScheme.onPrimary)
+                fontSize = 33.sp, color = loginHeadingColor)
             Spacer(Modifier.height(10.dp))
             Text("Um lugar para aprender e compartilhar a fé.",
-                color = MaterialTheme.colorScheme.onPrimary, fontSize = 15.sp)
+                color = loginHeadingColor, fontSize = 15.sp)
             Spacer(Modifier.height(26.dp))
         }
         Card(
-            modifier = if (registering) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier,
+            modifier = if (registering || stainedLogin) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier,
             colors = if (registering) {
                 CardDefaults.cardColors(containerColor = formBackground, contentColor = formText)
             } else CardDefaults.cardColors(containerColor = Paper),
@@ -602,6 +606,7 @@ internal fun OnlineAuthScreen(
                     modifier = Modifier.fillMaxWidth())
             }
         }
+    }
     }
     if (legalDocument.isNotEmpty()) {
         AlertDialog(
