@@ -226,6 +226,62 @@ class LoginLiturgicalBackdropUiTest {
         }
     }
 
+    @Test fun registrationUsesSixDedicatedLocalArtsAndKeepsRequiredControls() {
+        val app = FirebaseApp.getInstance()
+        check(BuildConfig.BUILD_TYPE == "qaGeral" && BuildConfig.DEBUG &&
+            app.options.projectId == "demo-atrio-v11") { "Somente QA isolado" }
+        val dates = listOf("2026-11-28" to Season.ORDINARY, "2026-11-29" to Season.ADVENT,
+            "2026-12-25" to Season.CHRISTMAS, "2027-02-10" to Season.LENT,
+            "2027-03-26" to Season.TRIDUUM, "2027-03-28" to Season.EASTER)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        dates.forEach { (_, season) ->
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.assets.open(registrationVitralAssetName(season)).use {
+                BitmapFactory.decodeStream(it, null, bounds)
+            }
+            assertEquals(941, bounds.outWidth)
+            assertEquals(1672, bounds.outHeight)
+            assertEquals("image/webp", bounds.outMimeType)
+        }
+        val day = mutableStateOf(LiturgicalCalendarBR.day(java.time.LocalDate.parse(dates.first().first)))
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalLiturgicalDay provides day.value) {
+                    OnlineAuthScreen(FirebaseAuth.getInstance(app), FirebaseFirestore.getInstance(app))
+                }
+            }
+        }
+        compose.onNodeWithTag("atrio-auth-toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("atrio-login-backdrop").assertDoesNotExist()
+        val name = "Pessoa QA"
+        compose.onNodeWithTag("atrio-auth-name").performScrollTo().performTextInput(name)
+        dates.forEach { (date, season) ->
+            compose.runOnIdle { day.value = LiturgicalCalendarBR.day(java.time.LocalDate.parse(date)) }
+            val tag = "atrio-registration-vitral-${season.name}"
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size == 1
+            }
+            compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+            compose.onNodeWithTag("atrio-auth-name").performScrollTo().assertTextContains(name)
+        }
+        listOf("atrio-auth-email", "atrio-auth-password", "atrio-auth-confirm",
+            "atrio-auth-rules", "atrio-auth-privacy").forEach {
+            compose.onNodeWithTag(it).performScrollTo().assertIsDisplayed()
+        }
+        compose.onNodeWithTag("atrio-auth-submit").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("atrio-auth-toggle").performScrollTo().performClick()
+        compose.onNodeWithTag("atrio-registration-backdrop").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-login-backdrop").assertIsDisplayed()
+    }
+
+    @Test fun registrationDecodeFailureKeepsSolidBackdrop() {
+        val missing: (Context, Season) -> ImageBitmap? = { _, _ -> null }
+        compose.setContent { RegistrationLiturgicalBackdrop(Season.ADVENT, missing) }
+        compose.waitForIdle()
+        compose.onNodeWithTag("atrio-registration-backdrop").assertIsDisplayed()
+        compose.onNodeWithTag("atrio-registration-vitral-ADVENT", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     @Test fun failedDecodeLeavesSolidBackdropAvailable() {
         val missing: (Context, Season) -> ImageBitmap? = { _, _ -> null }
         compose.setContent { LoginLiturgicalBackdrop(Season.ADVENT, missing) }
