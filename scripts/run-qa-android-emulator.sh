@@ -160,7 +160,7 @@ run_suite() {
       profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
       profiles:PerfilQaSaveEmulatorTest|\
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
-      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|\
+      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|interaction:WelcomeVitralUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
       bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
       bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest|\
@@ -254,6 +254,7 @@ PY
   else
     run_suite "$ATRIO_QA_SUITE"
   fi
+  run_suite WelcomeVitralTalkBackUiTest
   adb logcat -d -s AtrioQaProfileV3:I '*:S' \
     > qa-android-suite-results/profile-v3-offline.log
   if [[ "${ATRIO_QA_PROFILE_V3_DISCUSSIONS_HTTP:-}" == 1 ]]; then
@@ -442,9 +443,24 @@ if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == tru
 else
   run_suite LoginLiturgicalBackdropUiTest
 fi
+if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == true ]]; then
+  run_suite WelcomeVitralUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+else
+  run_suite WelcomeVitralUiTest
+fi
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   if [[ "$qa_apk" == "qaGeral" ]]; then
+    mkdir -p qa-android-suite-results/welcome-preview
+    adb logcat -d -s AtrioQaWelcome:I '*:S' > qa-android-suite-results/welcome-decode.log
+    if [[ "$(grep -c 'decode=' qa-android-suite-results/welcome-decode.log || true)" -lt 7 ]]; then
+      qa_failed=1
+      echo "Diagnosticos de decodificacao incompletos"
+    fi
+    if ! adb pull /data/local/tmp/atrio-welcome-preview/. qa-android-suite-results/welcome-preview/; then
+      qa_failed=1
+      echo "Falha ao coletar capturas das boas-vindas"
+    fi
     mkdir -p qa-android-suite-results/login-preview
     if ! adb pull /data/local/tmp/atrio-login-preview/. qa-android-suite-results/login-preview/; then
       qa_failed=1
