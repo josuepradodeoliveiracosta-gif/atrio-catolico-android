@@ -26,3 +26,9 @@ Produzir molduras limpas sem textos, botões, emblema, seta ou barras de sistema
 3. Composição acessível com seta, emblema/nome, divisor, pergunta e três escolhas equivalentes. Fonte ampliada, telas baixas, 48 dp, foco, TalkBack, toques repetidos e retorno.
 4. QA 18 combinações tema × escolha, retorno, calendário antes/no instante/depois, offline, falhas, recuperação, concorrência, contraste e desempenho comparado no mesmo aparelho. Limites de desempenho a definir antes das medições.
 5. Liberação acompanhada, versão candidata distinta do APK 49, teste de atualização/instalação nova e reversão. Não integrar nem assinar sem gates aprovados. Produção e APK 49 preservados.
+
+## Marco 3 — integração em revisão (27/11/2026)
+
+RegistrationParticipationScreen passa a chamar ParticipationVitralEntry. Fora do QA Geral mantém a implementação anterior sem acessar artes. No QA, a tela preserva callbacks sem argumentos, scroll e três ações; usa o mesmo LocalLiturgicalDay e o decodificador local existente, com caminhos de participação. Estado por tema/dimensões cancela publicação obsoleta; somente frame válido ativa a paleta. O fallback preserva controles, inclusive durante a troca; retomar após pausa reexecuta tentativa se frame ausente. Trava de navegação por visita evita toques repetidos; retorno/reentrada recria estado. Moldura decorativa sem descrição, área de leitura opaca, recorte superior em tela curta. Testes sintéticos de 18 interações, ausência de arte, isolamento de variante e concorrência adicionados ao grupo interaction. Não são prova da navegação real nem das artes finais.
+
+Pendência bloqueante: as seis molduras limpas ainda não foram produzidas nem aprovadas. Sem elas a tela fica no fallback. Contraste com arte, TalkBack, desempenho físico, matriz real, captura visual e liberação permanecem pendentes. Não integrar antes de concluir esses gates.

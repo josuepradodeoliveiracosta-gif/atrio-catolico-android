@@ -127,6 +127,11 @@ internal fun RegistrationCompactHeader(
 
 @Composable
 internal fun RegistrationParticipationScreen(onContinue: () -> Unit, onBack: () -> Unit) {
+    ParticipationVitralEntry(onContinue, onBack)
+}
+
+@Composable
+internal fun RegistrationParticipationDefault(onContinue: () -> Unit, onBack: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val background = if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
     val titleColor = if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)

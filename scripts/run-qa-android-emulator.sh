@@ -160,7 +160,7 @@ run_suite() {
       profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
       profiles:PerfilQaSaveEmulatorTest|\
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
-      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|interaction:WelcomeVitralUiTest|\
+      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|interaction:WelcomeVitralUiTest|interaction:ParticipationVitralUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
       bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
       bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest|\
@@ -448,6 +448,7 @@ if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == tru
 else
   run_suite WelcomeVitralUiTest
 fi
+run_suite ParticipationVitralUiTest
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   if [[ "$qa_apk" == "qaGeral" ]]; then

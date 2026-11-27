@@ -3,7 +3,7 @@ package br.com.atriocatolico
 import br.com.atriocatolico.LiturgicalCalendarBR.Season
 
 /** Participation uses the same approved solid palette and season as welcome.
- * No UI activation until the six clean QA resources and their loader are validated.
+ * A missing or invalid QA resource keeps the complete default presentation.
  */
 internal object ParticipationVitralPolicy {
     fun resolve(buildType: String, season: Season?): WelcomeVitralSpec? {
