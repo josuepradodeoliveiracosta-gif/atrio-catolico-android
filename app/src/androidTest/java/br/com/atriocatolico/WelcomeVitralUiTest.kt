@@ -1,5 +1,13 @@
 package br.com.atriocatolico
 
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.ParcelFileDescriptor
+import com.google.firebase.FirebaseApp
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import java.time.LocalDate
+import java.util.Locale
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -82,5 +90,90 @@ class WelcomeVitralUiTest {
         compose.onNodeWithTag("atrio-welcome-login").assertExists()
         compose.onNodeWithTag("atrio-welcome-season-boas_vindas_vitral_advento.webp").assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, creates) }
+    }
+
+    @Test fun nonQaNeverCallsTheLoader() {
+        var loads = 0
+        compose.setContent {
+            WelcomeVitralEntry({}, {}, season = Season.ADVENT, buildType = "release",
+                loader = { _, _, _, _ -> loads++; null })
+        }
+        compose.onNodeWithTag("atrio-welcome-create").assertExists()
+        compose.onNodeWithTag("atrio-welcome-season-boas_vindas_vitral_advento.webp").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(0, loads) }
+    }
+
+    @Test fun realWelcomeNavigatesToLoginAndRegistrationInAllSixSeasons() {
+        assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
+        val app = FirebaseApp.getInstance()
+        check(BuildConfig.DEBUG && app.options.projectId == "demo-atrio-v11") { "Somente QA isolado" }
+        val dates = listOf("2026-11-29" to Season.ADVENT, "2026-12-25" to Season.CHRISTMAS,
+            "2026-11-28" to Season.ORDINARY, "2027-02-10" to Season.LENT,
+            "2027-03-26" to Season.TRIDUUM, "2027-03-28" to Season.EASTER)
+        val day = mutableStateOf(LiturgicalCalendarBR.day(LocalDate.parse(dates.first().first)))
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalLiturgicalDay provides day.value) {
+                    OnlineAuthScreen(FirebaseAuth.getInstance(app), FirebaseFirestore.getInstance(app),
+                        showWelcomeInIsolatedQa = true)
+                }
+            }
+        }
+        fun waitForTheme(season: Season) {
+            val name = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season)).assetName.substringAfterLast('/')
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("atrio-welcome-season-" + name, useUnmergedTree = true)
+                    .fetchSemanticsNodes().size == 1
+            }
+            compose.onNodeWithTag("atrio-welcome-create").assertExists()
+        }
+        var previous: Season? = null
+        dates.forEach { (date, season) ->
+            compose.runOnIdle { day.value = LiturgicalCalendarBR.day(LocalDate.parse(date)) }
+            waitForTheme(season)
+            previous?.let {
+                val name = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", it)).assetName.substringAfterLast('/')
+                compose.onNodeWithTag("atrio-welcome-season-" + name, useUnmergedTree = true).assertDoesNotExist()
+            }
+            val label = season.name.lowercase(Locale.ROOT)
+            compose.onNodeWithTag("atrio-welcome-vitral", useUnmergedTree = true).assertIsDisplayed()
+            captureWelcome(label + "-arte")
+            compose.onNodeWithTag("atrio-welcome-login").performScrollTo().assertIsDisplayed()
+            captureWelcome(label + "-acoes")
+            compose.onNodeWithTag("atrio-welcome-login").performClick()
+            compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
+            waitForTheme(season)
+            compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
+            compose.onNodeWithText("Como você quer participar?").assertExists()
+            compose.onNodeWithText("Sou católico(a)").performScrollTo().performClick()
+            compose.onNodeWithTag("atrio-auth-name").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
+            compose.onNodeWithText("Como você quer participar?").assertExists()
+            compose.onNodeWithTag("atrio-auth-back").performScrollTo().performClick()
+            waitForTheme(season)
+            previous = season
+        }
+    }
+
+    private fun captureWelcome(name: String) {
+        if (Build.VERSION.SDK_INT < 31) return
+        require(name.matches(Regex("[a-z0-9-]+")))
+        compose.waitForIdle()
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val dir = "/data/local/tmp/atrio-welcome-preview"
+        ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand("mkdir -p $dir")).use { it.readBytes() }
+        val bitmap = automation.takeScreenshot() ?: error("Emulador não capturou boas-vindas")
+        try {
+            val fds = automation.executeShellCommandRw("dd of=$dir/$name.png")
+            ParcelFileDescriptor.AutoCloseInputStream(fds[0]).use { output ->
+                ParcelFileDescriptor.AutoCloseOutputStream(fds[1]).use { input ->
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, input))
+                }
+                output.readBytes()
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
 }

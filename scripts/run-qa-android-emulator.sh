@@ -160,7 +160,7 @@ run_suite() {
       profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
       profiles:PerfilQaSaveEmulatorTest|\
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
-      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|\
+      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|interaction:WelcomeVitralUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
       bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
       bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest|\
@@ -442,9 +442,15 @@ if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == tru
 else
   run_suite LoginLiturgicalBackdropUiTest
 fi
+run_suite WelcomeVitralUiTest
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   if [[ "$qa_apk" == "qaGeral" ]]; then
+    mkdir -p qa-android-suite-results/welcome-preview
+    if ! adb pull /data/local/tmp/atrio-welcome-preview/. qa-android-suite-results/welcome-preview/; then
+      qa_failed=1
+      echo "Falha ao coletar capturas das boas-vindas"
+    fi
     mkdir -p qa-android-suite-results/login-preview
     if ! adb pull /data/local/tmp/atrio-login-preview/. qa-android-suite-results/login-preview/; then
       qa_failed=1
