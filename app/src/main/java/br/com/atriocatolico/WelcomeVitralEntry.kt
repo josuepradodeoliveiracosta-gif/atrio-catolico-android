@@ -34,8 +34,10 @@ internal fun WelcomeVitralEntry(
     season: Season? = LocalLiturgicalDay.current.season,
     buildType: String = BuildConfig.BUILD_TYPE,
     loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap? = ::decodeWelcomeVitral,
+    cache: WelcomeVitralCache? = if (loader == ::decodeWelcomeVitral) sharedWelcomeVitralCache else null,
 ) {
-    if (WelcomeVitralPolicy.resolve(buildType, season) == null) {
+    val spec = WelcomeVitralPolicy.resolve(buildType, season)
+    if (spec == null) {
         RegistrationWelcomeDefault(onCreate, onLogin)
         return
     }
@@ -46,16 +48,19 @@ internal fun WelcomeVitralEntry(
         val frame = rememberWelcomeVitralFrame(
             targetWidth = with(density) { width.roundToPx() },
             targetHeight = with(density) { artHeight.roundToPx() },
-            season = season, buildType = buildType, loader = loader,
+            season = season, buildType = buildType, loader = loader, cache = cache,
         )
-        if (frame == null) RegistrationWelcomeDefault(onCreate, onLogin)
-        else WelcomeVitralScreen(frame, onCreate, onLogin)
+        when (frame) {
+            WelcomeVitralLoadState.Unavailable -> RegistrationWelcomeDefault(onCreate, onLogin)
+            else -> WelcomeVitralScreen(spec, (frame as? WelcomeVitralLoadState.Ready)?.frame?.bitmap,
+                onCreate, onLogin)
+        }
     }
 }
 
 @Composable
-private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit, onLogin: () -> Unit) {
-    val p = frame.spec
+private fun WelcomeVitralScreen(p: WelcomeVitralSpec, bitmap: ImageBitmap?,
+    onCreate: () -> Unit, onLogin: () -> Unit) {
     val surface = Color(p.readingSurface)
     val accent = Color(p.accent)
     val ink = Color(p.body)
@@ -78,12 +83,18 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
         val artHeight = width * (1800f / 790f)
         Column(Modifier.width(width).verticalScroll(scroll)) {
             Box(Modifier.fillMaxWidth().heightIn(min = artHeight).background(surface)
-                .testTag("atrio-welcome-season-" + p.assetName.substringAfterLast('/'))) {
-                Image(
-                    bitmap = frame.bitmap, contentDescription = null,
-                    modifier = Modifier.fillMaxWidth().height(artHeight).testTag("atrio-welcome-vitral"),
-                    contentScale = ContentScale.Fit, alignment = Alignment.TopCenter,
-                )
+                .testTag(if (bitmap == null) "atrio-welcome-loading"
+                    else "atrio-welcome-season-" + p.assetName.substringAfterLast('/'))) {
+                // A mesma estrutura, ações e paleta permanecem na composição ao carregar.
+                Box(Modifier.fillMaxWidth().height(artHeight)) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap, contentDescription = null,
+                            modifier = Modifier.fillMaxSize().testTag("atrio-welcome-vitral"),
+                            contentScale = ContentScale.Fit, alignment = Alignment.TopCenter,
+                        )
+                    }
+                }
                 Column(Modifier.fillMaxWidth()) {
                     Spacer(Modifier.height(artHeight * 0.325f))
                     Surface(
