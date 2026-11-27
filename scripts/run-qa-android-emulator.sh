@@ -450,6 +450,11 @@ if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
       qa_failed=1
       echo "Falha ao coletar print do login"
     fi
+    mkdir -p qa-android-suite-results/registration-preview
+    if ! adb pull /data/local/tmp/atrio-registration-preview/. qa-android-suite-results/registration-preview/; then
+      qa_failed=1
+      echo "Falha ao coletar print do cadastro"
+    fi
   fi
   mkdir -p qa-android-suite-results/reaction-preview
   if ! adb pull /data/local/tmp/atrio-reaction-preview/. qa-android-suite-results/reaction-preview/; then
