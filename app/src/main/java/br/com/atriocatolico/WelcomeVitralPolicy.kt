@@ -4,8 +4,7 @@ import br.com.atriocatolico.LiturgicalCalendarBR.Season
 
 /**
  * Contrato de arte da tela anterior à autenticação, separado do banner interno.
- * Os arquivos abaixo são nomes reservados para exportações limpas ainda pendentes.
- * Esta fundação não altera a interface até a aprovação das seis artes.
+ * Recursos limpos e isolados em src/qaGeral; integração em revisão e QA.
  */
 internal data class WelcomeVitralSpec(
     val assetName: String,

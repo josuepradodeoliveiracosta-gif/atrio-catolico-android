@@ -33,6 +33,11 @@ import com.google.firebase.firestore.Source
  */
 @Composable
 internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit) {
+    WelcomeVitralEntry(onCreate, onLogin)
+}
+
+@Composable
+internal fun RegistrationWelcomeDefault(onCreate: () -> Unit, onLogin: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val background = if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
     val titleColor = if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
