@@ -1,5 +1,6 @@
 package br.com.atriocatolico
 
+import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -16,6 +17,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import br.com.atriocatolico.LiturgicalCalendarBR.Season
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,28 +46,32 @@ internal fun loginVitralPreviewResource(season: Season): Int = when (season) {
     else -> R.drawable.liturgy_ordinary
 }
 
+private fun decodeLoginVitral(context: Context, season: Season): ImageBitmap? {
+    val original = try {
+        context.assets.open(loginVitralAssetName(season)).use {
+            BitmapFactory.decodeStream(it)?.asImageBitmap()
+        }
+    } catch (_: Exception) { null }
+    return original ?: try {
+        BitmapFactory.decodeResource(context.resources,
+            loginVitralPreviewResource(season))?.asImageBitmap()
+    } catch (_: Exception) { null }
+}
+
 @Composable
-internal fun LoginLiturgicalBackdrop() {
+internal fun LoginLiturgicalBackdrop(
+    season: Season = LocalLiturgicalDay.current.season,
+    loader: (Context, Season) -> ImageBitmap? = ::decodeLoginVitral
+) {
     val context = LocalContext.current
-    val season = LocalLiturgicalDay.current.season
-    Box(Modifier.fillMaxSize().background(Color(0xFF211922))) {
-        key(season, context) {
+    Box(Modifier.fillMaxSize().background(Color(0xFF211922)).testTag("atrio-login-backdrop")) {
+        key(season, context, loader) {
             val bitmap by produceState<ImageBitmap?>(null) {
-                value = withContext(Dispatchers.IO) {
-                    val original = try {
-                        context.assets.open(loginVitralAssetName(season)).use {
-                            BitmapFactory.decodeStream(it)?.asImageBitmap()
-                        }
-                    } catch (_: Exception) { null }
-                    original ?: try {
-                        BitmapFactory.decodeResource(context.resources,
-                            loginVitralPreviewResource(season))?.asImageBitmap()
-                    } catch (_: Exception) { null }
-                }
+                value = withContext(Dispatchers.IO) { loader(context, season) }
             }
             bitmap?.let {
                 Image(bitmap = it, contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().testTag("atrio-login-vitral-${season.name}"),
                     alignment = Alignment.TopCenter, contentScale = ContentScale.Crop)
             }
         }

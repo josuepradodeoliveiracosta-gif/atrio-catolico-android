@@ -7,7 +7,7 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 GROUPS = {
     "profiles": ["GuardianSessionUiTest","ProfileLayoutUiTest","ProfilePhotoUiTest","ProfileEditorUiTest","DesignV2UiTest","EmailVerificationAndroidUiTest","PerfilQaSaveEmulatorTest"],
-    "interaction": ["EngagementUiTest","ReactionEmojiUiTest","DiscussionDetailV2UiTest","AtrioTypographyAccessibilityUiTest"],
+    "interaction": ["EngagementUiTest","ReactionEmojiUiTest","DiscussionDetailV2UiTest","AtrioTypographyAccessibilityUiTest","LoginLiturgicalBackdropUiTest"],
     "bots": ["ThreeBotsAndroidUiTest","ThreeBotsAuthenticatedAndroidUiTest","ThreeBotsOnlineEmulatorTest","AtrioConversasCompostasEmulatorUiTest","AtrioConversasNavegacaoEmulatorUiTest","AtrioConversasForaDaConfiguracaoEmulatorUiTest","AtrioConversasTrocaContaEmulatorUiTest"],
 }
 FOCAL_ROUTES = {

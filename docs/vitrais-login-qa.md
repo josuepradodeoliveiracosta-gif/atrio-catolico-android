@@ -16,3 +16,8 @@ Não modificar os recursos de boas-vindas. A prévia horizontal deve ser retirad
 
 ## Validação local isolada
 `ATRIO_QA_GERAL_BUILD=1 ./gradlew :app:testQaGeralUnitTest :app:assembleQaGeral` em checkout compatível com o gate do QA Geral. Não usar credenciais Firebase oficiais. Revisar resultado real do CI, não inferir homologação da presença dos testes.
+
+## Evidência de integridade e QA
+- Os SHA-256 dos seis WebP definitivos estão em `docs/vitrais-login.sha256`, medidos nos arquivos extraídos e otimizados. Antes de aprovar M1, executar da raiz do repositório: `(cd app/src/main/assets/login-vitrais && sha256sum -c ../../../../../docs/vitrais-login.sha256)`. Todos devem passar.
+- O teste instrumentado `LoginLiturgicalBackdropUiTest` integra o grupo interaction do QA Android. Exercita a troca dos seis fundos locais e a permanência do fundo sólido sem imagem, sem depender de Firebase. A aprovação da prévia não comprova a presença das artes definitivas; verificar o manifesto separadamente.
+- A revisão de acessibilidade do formulário real e as medições de abertura e tamanho do APK continuam pendentes.

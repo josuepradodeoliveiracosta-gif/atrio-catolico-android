@@ -160,7 +160,7 @@ run_suite() {
       profiles:ProfileEditorUiTest|profiles:DesignV2UiTest|profiles:EmailVerificationAndroidUiTest|\
       profiles:PerfilQaSaveEmulatorTest|\
       interaction:EngagementUiTest|interaction:ReactionEmojiUiTest|\
-      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|\
+      interaction:DiscussionDetailV2UiTest|interaction:AtrioTypographyAccessibilityUiTest|interaction:LoginLiturgicalBackdropUiTest|\
       bots:ThreeBotsAndroidUiTest|bots:ThreeBotsAuthenticatedAndroidUiTest|\
       bots:ThreeBotsOnlineEmulatorTest|bots:AtrioConversasCompostasEmulatorUiTest|\
       bots:AtrioConversasNavegacaoEmulatorUiTest|bots:AtrioConversasForaDaConfiguracaoEmulatorUiTest|\
@@ -437,6 +437,7 @@ run_suite ReactionEmojiUiTest
 run_suite DiscussionDetailV2UiTest
 # Fonte ampliada sem dados de produção: compositor 200%, navegação 160%.
 run_suite AtrioTypographyAccessibilityUiTest
+run_suite LoginLiturgicalBackdropUiTest
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   mkdir -p qa-android-suite-results/reaction-preview
