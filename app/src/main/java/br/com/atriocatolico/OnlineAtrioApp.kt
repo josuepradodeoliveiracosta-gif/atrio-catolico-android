@@ -324,7 +324,7 @@ internal fun OnlineAuthScreen(
     val formText = if (stainedRegistration) Color(0xFFFFF5E6) else if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
     val formOutline = if (stainedRegistration) Color(0xFFD9B97B) else if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
     val formError = if (stainedRegistration) Color(0xFFFFB4AB) else MaterialTheme.colorScheme.error
-    val fieldColors = if (registering) OutlinedTextFieldDefaults.colors(
+    val fieldColors = if (stainedRegistration) OutlinedTextFieldDefaults.colors(
         focusedTextColor = formText,
         unfocusedTextColor = formText,
         focusedLabelColor = formHeading,
@@ -336,14 +336,26 @@ internal fun OnlineAuthScreen(
         unfocusedTrailingIconColor = formHeading,
         focusedSupportingTextColor = formText,
         unfocusedSupportingTextColor = formText,
-        errorTextColor = if (stainedRegistration) formText else MaterialTheme.colorScheme.onSurface,
+        errorTextColor = formText,
         errorLabelColor = formError,
         errorBorderColor = formError,
         errorCursorColor = formError,
         errorSupportingTextColor = formError,
         errorTrailingIconColor = formError,
-        disabledTextColor = if (stainedRegistration) formText.copy(alpha = .72f) else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f),
-        disabledLabelColor = if (stainedRegistration) formText.copy(alpha = .72f) else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)
+        disabledTextColor = formText.copy(alpha = .72f),
+        disabledLabelColor = formText.copy(alpha = .72f)
+    ) else if (registering) OutlinedTextFieldDefaults.colors(
+        focusedTextColor = formText,
+        unfocusedTextColor = formText,
+        focusedLabelColor = formHeading,
+        unfocusedLabelColor = formHeading,
+        focusedBorderColor = formHeading,
+        unfocusedBorderColor = formOutline,
+        cursorColor = formHeading,
+        focusedTrailingIconColor = formHeading,
+        unfocusedTrailingIconColor = formHeading,
+        focusedSupportingTextColor = formText,
+        unfocusedSupportingTextColor = formText
     ) else OutlinedTextFieldDefaults.colors()
 
     val stainedLogin = !registering && loginVitraisEnabled(BuildConfig.BUILD_TYPE)

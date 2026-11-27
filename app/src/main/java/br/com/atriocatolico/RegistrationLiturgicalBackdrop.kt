@@ -59,7 +59,7 @@ internal fun RegistrationLiturgicalBackdrop(
                     alignment = Alignment.TopCenter, contentScale = ContentScale.Crop)
             }
         }
-        // O cabeçalho é claro e o formulário tem superfície escura de alta opacidade.
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .35f)))
+        // Scrim conservador para texto claro sobre qualquer pixel do vitral.
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .65f)))
     }
 }
