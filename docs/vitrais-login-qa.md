@@ -3,10 +3,10 @@
 Referência: Vitrais_Liturgicos_Atrio_Catolico (1).pdf, páginas 1–5. PR #470.
 
 ## Estado
-- M1: seis WebP verticais definitivos (941 × 1672; 2.237.994 bytes), incluídos no commit 16291feaa1d22ff40ce025e977ae1cee2172fe76. Identidade dos seis blobs Git conferida. Falta medir impacto no APK.
+- M1: seis WebP verticais definitivos (941 × 1672; 2.237.994 bytes), incluídos no commit 16291feaa1d22ff40ce025e977ae1cee2172fe76. Identidade dos seis blobs Git conferida. Impacto comparativo medido: +2.239.028 bytes (+7,34%).
 - M2: reutiliza LocalLiturgicalDay e calendário civil local. Quinta-feira Santa mantém a regra existente (Quaresma); sem mudança geral do calendário.
 - M3: fundo local, decodificação em IO, recorte superior, scrim, cartão opaco. A reserva horizontal foi removida: se a arte estiver indisponível, exibe somente fundo sólido. Cadastro e boas-vindas preservados. Somente QA Geral; desativação por LOGIN_VITRAIS_QA_ENABLED.
-- M4: 27 verificações aprovadas, duas ignoradas, zero falhas no commit ebafae54e0a9be2ee669d096c5fac739a9213783. Suíte LoginLiturgicalBackdropUiTest aprovada (job 140250331537), incluindo presença, formato e dimensões das seis artes, troca de tema e fallback sólido. Novo teste instrumentado do formulário real com escala de fonte 200%, área compacta, campos, senha visível/oculta, erro local de recuperação e navegação para cadastro; aguarda execução. Não envia pedidos de autenticação. Inspeção visual, teclado real, paisagem, recuperação completa e medições de desempenho continuam pendentes.
+- M4: suíte de vitrais aprovada no commit 9715b7cabd1743907fc1bbc00122c0f469df0831 (job 140267283729), incluindo presença, formato e dimensões das artes, troca de tema, fallback sólido, formulário compacto a 200%, campos, senha visível/oculta, erro local de recuperação, navegação ao cadastro e captura real do login no Tempo Comum. Novo teste do formulário real com seis datas injetadas verifica preservação do e-mail durante as transições; aguarda execução. Não altera o relógio do dispositivo nem testa retorno de background por si só. Teclado real, paisagem, rede desligada e recuperação completa ainda carecem de evidência específica.
 - M5: bloqueado até concluir critérios do PDF. Não publicar.
 
 ## Integridade
@@ -28,3 +28,10 @@ Sem credenciais Firebase oficiais. Suíte instrumentada no grupo interaction do 
 - Abertura da Activity: 2.029, 1.955 e 1.940 ms; mediana 1.955 ms.
 - Contraste analítico mínimo do texto branco sobre as seis artes com scrim 65%: 6,90:1; não substitui inspeção visual.
 - Próximo commit adiciona comparação A/B com a base be1756ff036efdde1aa6529a6268dfe5951d77a3, na mesma variante e no mesmo emulador, três pares alternados. Relatório base-comparison.json. Aguardando resultados; nenhuma ativação em produção.
+
+## Comparação A/B e captura real — commit 9715b7c
+- 27 verificações aprovadas, duas ignoradas, zero falhas. Job 140267283729.
+- Base be1756ff036efdde1aa6529a6268dfe5951d77a3: 30.505.958 bytes. Candidato: 32.744.986 bytes. Delta: 2.239.028 bytes (+7,34%).
+- Abertura a frio (ms): base 2019, 1776, 1763; candidato 2029, 1715, 1718. Medianas 1776 e 1718 ms; diferença -58 ms (-3,27%). Sem regressão observada nessa amostra pequena. Primeira janela da Activity, não login completamente pronto nem aparelho físico.
+- Integridade das seis artes no APK confirmada por SHA-256. Captura real do Tempo Comum no artefato 15166373815, diretório qa-android-suite-results/login-preview.
+- Sem ativação de produção; PR permanece em homologação.

@@ -103,6 +103,42 @@ class LoginLiturgicalBackdropUiTest {
         compose.onNodeWithTag("atrio-auth-name").performScrollTo().assertIsDisplayed()
     }
 
+    @Test fun realLoginKeepsFormStateAcrossSixLiturgicalDates() {
+        val app = FirebaseApp.getInstance()
+        check(BuildConfig.BUILD_TYPE == "qaGeral" && BuildConfig.DEBUG &&
+            app.options.projectId == "demo-atrio-v11") { "Somente QA isolado" }
+        val dates = listOf("2026-11-28" to Season.ORDINARY, "2026-11-29" to Season.ADVENT,
+            "2026-12-25" to Season.CHRISTMAS, "2027-02-10" to Season.LENT,
+            "2027-03-26" to Season.TRIDUUM, "2027-03-28" to Season.EASTER)
+        val day = mutableStateOf(LiturgicalCalendarBR.day(java.time.LocalDate.parse(dates.first().first)))
+        compose.setContent {
+            AtrioTheme {
+                CompositionLocalProvider(LocalLiturgicalDay provides day.value) {
+                    OnlineAuthScreen(FirebaseAuth.getInstance(app), FirebaseFirestore.getInstance(app))
+                }
+            }
+        }
+        val email = "transicao@qa.invalid"
+        compose.onNodeWithTag("atrio-auth-email").performScrollTo().performTextInput(email)
+        var previous: Season? = null
+        dates.forEach { (date, season) ->
+            compose.runOnIdle { day.value = LiturgicalCalendarBR.day(java.time.LocalDate.parse(date)) }
+            val tag = "atrio-login-vitral-${season.name}"
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size == 1
+            }
+            compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+            compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertTextContains(email)
+            previous?.let {
+                compose.onNodeWithTag("atrio-login-vitral-${it.name}", useUnmergedTree = true)
+                    .assertDoesNotExist()
+            }
+            previous = season
+        }
+        // Sem senha e sem envio ao servidor.
+        compose.onNodeWithTag("atrio-auth-submit").performScrollTo().assertIsNotEnabled()
+    }
+
     @Test fun captureRealLoginAtNormalFont() {
         val app = FirebaseApp.getInstance()
         check(BuildConfig.BUILD_TYPE == "qaGeral" && BuildConfig.DEBUG &&
