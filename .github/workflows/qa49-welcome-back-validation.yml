@@ -24,9 +24,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-          ref: f4ac7d8ac35e3aba6742ea2a2cc850bce903e414
+          ref: 80a63da6a6ef3d672e98001228d9e23b6a0273d4
       - name: Registrar o commit executado pela suíte
-        run: test "$(git rev-parse HEAD)" = f4ac7d8ac35e3aba6742ea2a2cc850bce903e414
+        run: test "$(git rev-parse HEAD)" = 80a63da6a6ef3d672e98001228d9e23b6a0273d4
       - name: Preparar Java 17
         uses: actions/setup-java@v4
         with:
