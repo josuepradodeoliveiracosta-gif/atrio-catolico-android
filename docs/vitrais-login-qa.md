@@ -1,23 +1,18 @@
 # Vitrais litúrgicos no login — candidato QA
 
-Referência: Vitrais_Liturgicos_Atrio_Catolico (1).pdf, páginas 1–5. Base: be1756ff036efdde1aa6529a6268dfe5951d77a3.
+Referência: Vitrais_Liturgicos_Atrio_Catolico (1).pdf, páginas 1–5. PR #470.
 
 ## Estado
-- M1 parcial: seis artes verticais WebP preparadas externamente (941 × 1672, 2.237.994 bytes no total); ainda não incluídas no Git. O QA utiliza provisoriamente as seis artes horizontais de boas-vindas já versionadas. Não são as artes do PDF.
-- M2 em revisão: reutiliza LocalLiturgicalDay e o calendário civil local; testes de mapeamento e datas adicionados, ainda não executados. A Quinta-feira Santa segue o comportamento existente (Quaresma); uma mudança por horário litúrgico requer decisão e testes separados.
-- M3 em revisão: fundo decorativo local, decodificação em IO, recorte superior, scrim, cartão opaco e fallback sólido. Fluxos de autenticação/cadastro preservados. Somente QA Geral; desativação pelo flag LOGIN_VITRAIS_QA_ENABLED.
-- M4 pendente: compilar, executar testes, avaliar seis temas, tela pequena/paisagem, fonte ampliada, teclado, acessibilidade, offline, carga/falha, retorno após transição, login e recuperação de senha.
-- M5 bloqueado: medir delta de APK e abertura, aprovar QA, revisar ativação e versionamento. Não liberar nem publicar.
+- M1: seis WebP verticais definitivos (941 × 1672; 2.237.994 bytes), incluídos no commit 16291feaa1d22ff40ce025e977ae1cee2172fe76. Identidade dos seis blobs Git conferida. Falta medir impacto no APK.
+- M2: reutiliza LocalLiturgicalDay e calendário civil local. Quinta-feira Santa mantém a regra existente (Quaresma); sem mudança geral do calendário.
+- M3: fundo local, decodificação em IO, recorte superior, scrim, cartão opaco. A reserva horizontal foi removida: se a arte estiver indisponível, exibe somente fundo sólido. Cadastro e boas-vindas preservados. Somente QA Geral; desativação por LOGIN_VITRAIS_QA_ENABLED.
+- M4: 28 verificações aprovadas, duas ignoradas, zero falhas no commit 16291fe. A suíte LoginLiturgicalBackdropUiTest foi aprovada no emulador (job 140246553305). O novo commit exige nova execução; teste adicional confirma presença, formato e dimensões das seis artes no APK. Avaliação do formulário real com fonte ampliada, teclado, contraste, paisagem, recuperação de senha e medição de desempenho ainda pendentes.
+- M5: bloqueado até concluir critérios do PDF. Não publicar.
 
-## Artes definitivas
-Copiar exclusivamente os seis WebP extraídos do PDF para app/src/main/assets/login-vitrais/:
-login_vitral_advento.webp, login_vitral_natal.webp, login_vitral_tempo_comum.webp, login_vitral_quaresma.webp, login_vitral_triduo_pascal.webp, login_vitral_pascoa.webp.
-Não modificar os recursos de boas-vindas. A prévia horizontal deve ser retirada ou substituída por fundo sólido antes da liberação se os recursos definitivos falharem.
+## Integridade
+Diretório: app/src/main/assets/login-vitrais/. Da raiz:
+`(cd app/src/main/assets/login-vitrais && sha256sum -c ../../../../../docs/vitrais-login.sha256)`
 
-## Validação local isolada
-`ATRIO_QA_GERAL_BUILD=1 ./gradlew :app:testQaGeralUnitTest :app:assembleQaGeral` em checkout compatível com o gate do QA Geral. Não usar credenciais Firebase oficiais. Revisar resultado real do CI, não inferir homologação da presença dos testes.
-
-## Evidência de integridade e QA
-- Os SHA-256 dos seis WebP definitivos estão em `docs/vitrais-login.sha256`, medidos nos arquivos extraídos e otimizados. Antes de aprovar M1, executar da raiz do repositório: `(cd app/src/main/assets/login-vitrais && sha256sum -c ../../../../../docs/vitrais-login.sha256)`. Todos devem passar.
-- O teste instrumentado `LoginLiturgicalBackdropUiTest` integra o grupo interaction do QA Android. Exercita a troca dos seis fundos locais e a permanência do fundo sólido sem imagem, sem depender de Firebase. A aprovação da prévia não comprova a presença das artes definitivas; verificar o manifesto separadamente.
-- A revisão de acessibilidade do formulário real e as medições de abertura e tamanho do APK continuam pendentes.
+## Validação isolada
+`ATRIO_QA_GERAL_BUILD=1 ./gradlew :app:testQaGeralUnitTest :app:assembleQaGeral`
+Sem credenciais Firebase oficiais. Suíte instrumentada no grupo interaction do QA Android. A aprovação da compilação não equivale a validação física ou publicação.

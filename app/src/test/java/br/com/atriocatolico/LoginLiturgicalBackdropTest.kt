@@ -18,8 +18,7 @@ class LoginLiturgicalBackdropTest {
             assertEquals("login-vitrais/login_vitral_${name}.webp", loginVitralAssetName(season))
         }
         assertEquals(loginVitralAssetName(Season.ORDINARY), loginVitralAssetName(Season.ATRIO))
-        assertEquals(6, expected.keys.map(::loginVitralPreviewResource).toSet().size)
-        assertEquals(loginVitralPreviewResource(Season.ORDINARY), loginVitralPreviewResource(Season.ATRIO))
+        assertEquals(6, expected.keys.map(::loginVitralAssetName).toSet().size)
     }
 
     @Test fun calendarDatesUseExistingCivilCalendarAndNotFeastColor() {
@@ -37,7 +36,7 @@ class LoginLiturgicalBackdropTest {
         }
     }
 
-    @Test fun previewIsRestrictedToQaGeral() {
+    @Test fun featureIsRestrictedToQaGeral() {
         assertTrue(loginVitraisEnabled("qaGeral"))
         listOf("release", "debug", "chatQa", "perfilQa", "otaPilot", "").forEach {
             assertFalse(loginVitraisEnabled(it))

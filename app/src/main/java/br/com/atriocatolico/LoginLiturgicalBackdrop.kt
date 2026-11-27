@@ -36,27 +36,11 @@ internal fun loginVitralAssetName(season: Season): String = "login-vitrais/" + w
     else -> "login_vitral_tempo_comum.webp"
 }
 
-// Artes horizontais já existentes: prévia exclusiva do QA, não são as artes do PDF.
-internal fun loginVitralPreviewResource(season: Season): Int = when (season) {
-    Season.ADVENT -> R.drawable.liturgy_advent
-    Season.CHRISTMAS -> R.drawable.liturgy_christmas
-    Season.LENT -> R.drawable.liturgy_lent
-    Season.TRIDUUM -> R.drawable.liturgy_triduum
-    Season.EASTER -> R.drawable.liturgy_easter
-    else -> R.drawable.liturgy_ordinary
-}
-
-private fun decodeLoginVitral(context: Context, season: Season): ImageBitmap? {
-    val original = try {
-        context.assets.open(loginVitralAssetName(season)).use {
-            BitmapFactory.decodeStream(it)?.asImageBitmap()
-        }
-    } catch (_: Exception) { null }
-    return original ?: try {
-        BitmapFactory.decodeResource(context.resources,
-            loginVitralPreviewResource(season))?.asImageBitmap()
-    } catch (_: Exception) { null }
-}
+private fun decodeLoginVitral(context: Context, season: Season): ImageBitmap? = try {
+    context.assets.open(loginVitralAssetName(season)).use {
+        BitmapFactory.decodeStream(it)?.asImageBitmap()
+    }
+} catch (_: Exception) { null }
 
 @Composable
 internal fun LoginLiturgicalBackdrop(
