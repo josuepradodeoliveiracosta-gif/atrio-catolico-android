@@ -917,6 +917,7 @@ private fun OnlineCommunity(
         onDispose { listener.remove() }
     }
     var communityFeedEnabled by remember(db, uid) { mutableStateOf(false) }
+    var qaShopEnabled by remember(db, uid) { mutableStateOf(false) }
     var forumRetired by rememberSaveable(uid) {
         mutableStateOf(ThreadPushSubscriptions.isRetired(context, uid))
     }
@@ -927,6 +928,15 @@ private fun OnlineCommunity(
     DisposableEffect(db, uid) {
         val listener = db.document("app_config/community_feed")
             .addSnapshotListener(MetadataChanges.INCLUDE) { config, error ->
+                qaShopEnabled = QaShopAccess.allowed(
+                    buildType = BuildConfig.BUILD_TYPE,
+                    remote = BuildConfig.ATRIO_QA_GERAL_REMOTE,
+                    functional = BuildConfig.ATRIO_QA_GERAL_CELULAR_FUNCIONAL,
+                    projectId = db.app.options.projectId,
+                    confirmed = error == null && config != null &&
+                        !config.metadata.hasPendingWrites() && !config.metadata.isFromCache,
+                    enabled = config?.get("shopEnabled") == true,
+                )
                 if (error == null && config != null && !config.metadata.hasPendingWrites()) {
                     if (config.getBoolean("forumRetired") == true) forumRetired = true
                     else if (!config.metadata.isFromCache) forumRetired = false
@@ -1726,6 +1736,7 @@ private fun OnlineCommunity(
                             db = db, uid = uid, memberName = name, blockedMembers = blockedMembers,
                             searchOpen = searchOpen, search = search, onTextSearch = { search = it },
                             onPublish = { navigate(Tab.PUBLISH) }, onAuthor = ::openMemberProfile,
+                            qaShopEnabled = qaShopEnabled,
                         )
                     }
                 } else HomeScreen(name, posts, filter, search, searchOpen, welcomeUid = uid,

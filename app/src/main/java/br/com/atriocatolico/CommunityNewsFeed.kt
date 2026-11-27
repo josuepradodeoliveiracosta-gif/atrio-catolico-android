@@ -65,6 +65,7 @@ internal fun CommunityNewsFeed(
     search: String,
     onPublish: () -> Unit,
     onAuthor: (String, String) -> Unit,
+    qaShopEnabled: Boolean = false,
 ) {
     var following by rememberSaveable(uid) { mutableStateOf(false) }
     var questions by rememberSaveable(uid) { mutableStateOf(false) }
@@ -72,6 +73,11 @@ internal fun CommunityNewsFeed(
     var retry by remember(uid) { mutableStateOf(0) }
     var detail by rememberSaveable(uid) { mutableStateOf<String?>(null) }
     var channel by rememberSaveable(uid) { mutableStateOf<String?>(null) }
+    var shopOpen by remember(uid, qaShopEnabled, searchOpen) { mutableStateOf(false) }
+    if (qaShopEnabled && shopOpen && !searchOpen) {
+        QaShopScreen(onClose = { shopOpen = false })
+        return
+    }
     val friends = mutableSetOf<String>()
     val pages = mutableListOf<FeedPage>()
     if (!following || detail != null) {
@@ -145,6 +151,11 @@ internal fun CommunityNewsFeed(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         if (showWelcome) item { LiturgicalWelcome(memberName) }
+        if (qaShopEnabled && !searchOpen) item(key = "qa-shop") {
+            OutlinedButton(onClick = { shopOpen = true }, modifier = Modifier.testTag("atrio-qa-shop-open")) {
+                Text("Átrio Loja")
+            }
+        }
         item {
             Text("Feed de notícias", style = MaterialTheme.typography.headlineSmall)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
