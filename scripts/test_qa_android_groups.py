@@ -13,6 +13,7 @@ GROUPS = {
 FOCAL_ROUTES = {
     'if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then': (
         "WelcomeVitralTalkBackUiTest",
+        "ParticipationVitralTalkBackUiTest",
     ),
     'if [[ "${ATRIO_QA_SUITE:-}" == "GuardianV2UiTest" ]]; then': (
         "GuardianV2UiTest",
