@@ -1,20 +1,22 @@
-# Abertura eucarística em GIF
+# Abertura eucarística — GIF convertido para MP4
 
-Proposta em rascunho. Não integrar antes da inclusão e verificação do GIF original, compilação e testes. O MP4 foi retirado somente na branch de trabalho.
+Proposta em rascunho; não integrar antes da troca do binário e da homologação. A implementação experimental do decodificador GIF foi revertida nesta branch para reaproveitar o VideoView original. O arquivo MP4 antigo permanece até a substituição efetiva.
 
-## Asset obrigatório
-- Caminho: `app/src/main/res/raw/abertura_atrio.gif`.
-- GIF selecionado pelo fundador: 305 × 553 px, 9 quadros de 180 ms (1,62 s), 689.680 bytes.
-- SHA-256: `b5742a1246efa7603cf0dd3c79b683ee2c189076d0d186769249737e49be4a7a`.
-- Git blob SHA-1: `2cb91cf8a1da3303029d3be0cb537ad1bec053cf`.
-- Não usar o spritesheet nem converter para outro formato. O recurso ausente impede a compilação intencionalmente.
+## Mídia candidata
 
-## Comportamento
-Abertura offline, sem áudio, uma passagem do GIF. Preserva a preferência anterior e o botão Pular para quem já concluiu a abertura. Em telas com proporções muito diferentes preserva a composição com fundo azul escuro, sem cortar título ou barra. A barra desenhada no GIF indica o andamento da animação, não o progresso real do Firebase. Sem mudança de versão, assinatura, backend ou publicação.
+- Destino: `app/src/main/res/raw/abertura_atrio.mp4`.
+- Fonte: GIF eucarístico escolhido pelo fundador (305 × 553 px, nove quadros).
+- MP4 H.264, 1080 × 1920, yuv420p, 50 fps, 1,62 s, sem faixa de áudio, 830469 bytes.
+- SHA-256: `5b264941084b175687fc0ad0100903cd73d50b968d541c184964e3bb24d7a53c`.
+- Git blob SHA-1: `e6a37c04c5bb552a6d7f209889d949a66c3ec35c`.
+- Conversão mantém a composição com ampliação e recorte central mínimo. A barra desenhada indica o andamento da animação, não o carregamento real do Firebase.
 
-## Homologação
-- [ ] Conferir blob do GIF exato e ausência do MP4.
-- [ ] Compilar e executar testes de abertura, incluindo API 26/27 e API recente.
-- [ ] Conferir primeira abertura, Pular, Voltar, pausa/retorno, falha de decodificação e restauração das barras.
-- [ ] Conferir resolução e legibilidade em telas 9:16 e 20:9, autenticação e demo offline.
-- [ ] Integrar somente após checks e revisão.
+## Validação obrigatória antes de integrar
+
+- [ ] Conferir o blob do novo MP4 no destino exato.
+- [ ] Compilar e executar os testes existentes de abertura.
+- [ ] Conferir tela 9:16 e 20:9, modo offline, Pular, Voltar, pausa/retorno e restauração das barras.
+- [ ] Conferir abertura em aparelho Android, sem áudio e sem regressão na autenticação.
+- [ ] Atualizar a documentação histórica da abertura e integrar somente após revisão e CI.
+
+Sem alteração de versão, assinatura ou backend nesta preparação.
