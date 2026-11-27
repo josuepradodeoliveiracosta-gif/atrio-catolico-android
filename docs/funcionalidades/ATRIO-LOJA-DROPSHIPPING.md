@@ -32,3 +32,7 @@ Credenciais do fornecedor e do checkout ficam no backend. Ao fornecedor seguem a
 | 3. Checkout | Total confirmado em centavos, frete e prazo visíveis, recotação em caso de divergência, URL de QA e retorno ao mesmo pedido. |
 | 4. Pedidos | Pagamento recusado não inicia envio; eventos duplicados geram uma expedição; rastreio, cancelamento, estorno e devolução exercitados. |
 | 5. QA | Percurso completo com dados fictícios, registros sem dados pessoais e pontos de configuração do futuro fornecedor identificados. |
+
+## Acesso remoto de homologação
+
+A entrada Átrio Loja aparece no feed novo somente no build funcional QA Geral Celular conectado ao projeto `atrio-catolico-qa-general`, quando o documento `app_config/community_feed` tiver `shopEnabled: true` confirmado pelo servidor (sem cache nem escrita pendente). Ausência, erro, desativação ou outro ambiente fecham a entrada. O catálogo e pedidos continuam simulados localmente, sem fornecedor, cobrança ou dados reais. O APK 47 não contém esse acesso; é necessária nova compilação. O QA local anterior permanece inalterado. A ativação administrativa deve preservar `enabled` e `forumRetired`. Não alterar regras de produção.
