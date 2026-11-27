@@ -1,6 +1,13 @@
 package br.com.atriocatolico
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.content.res.Configuration
+import android.os.SystemClock
+import android.util.Log
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalConfiguration
 import android.content.Context
 import android.net.ConnectivityManager
 import android.os.Build
@@ -200,6 +207,62 @@ class WelcomeVitralUiTest {
             shell("cmd connectivity airplane-mode " + if (airplane == "1") "enable" else "disable")
             shell("svc wifi " + if (wifi == "1") "enable" else "disable")
             shell("svc data " + if (mobile == "1") "enable" else "disable")
+        }
+    }
+
+    @Test fun darkModeKeepsSixArtsAndBothActionsAccessible() {
+        assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
+        val selected = mutableStateOf(seasons.first())
+        compose.setContent {
+            val configuration = Configuration(LocalConfiguration.current).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or Configuration.UI_MODE_NIGHT_YES
+            }
+            CompositionLocalProvider(LocalConfiguration provides configuration) {
+                check(isSystemInDarkTheme()) { "Modo escuro não aplicado" }
+                AtrioTheme { WelcomeVitralEntry({}, {}, season = selected.value) }
+            }
+        }
+        for (season in seasons) {
+            compose.runOnIdle { selected.value = season }
+            val asset = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season)).assetName.substringAfterLast('/')
+            compose.waitUntil(10_000) {
+                compose.onAllNodesWithTag("atrio-welcome-season-" + asset, useUnmergedTree = true)
+                    .fetchSemanticsNodes().size == 1
+            }
+            val create = compose.onNodeWithTag("atrio-welcome-create")
+            val login = compose.onNodeWithTag("atrio-welcome-login")
+            create.performScrollTo().assertIsDisplayed().assertIsEnabled()
+            login.performScrollTo().assertIsDisplayed().assertIsEnabled()
+            captureWelcome(season.name.lowercase(Locale.ROOT) + "-escuro")
+        }
+    }
+
+    @Test fun recordComparableDecodeDiagnosticsWithoutInventingStartupThresholds() {
+        assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        fun sample(name: String, decode: () -> Bitmap) {
+            val times = mutableListOf<Long>()
+            val sizes = mutableListOf<Int>()
+            repeat(4) {
+                val start = SystemClock.elapsedRealtimeNanos()
+                val bitmap = decode()
+                times += (SystemClock.elapsedRealtimeNanos() - start) / 1000
+                try {
+                    assertTrue(bitmap.width > 0 && bitmap.height > 0)
+                    sizes += bitmap.allocationByteCount
+                } finally {
+                    bitmap.recycle()
+                }
+            }
+            Log.i("AtrioQaWelcome", "decode=$name first_us=${times.first()} repeated_median_us=${times.drop(1).sorted()[1]} max_bitmap_bytes=${sizes.maxOrNull()}")
+        }
+        sample("default") {
+            requireNotNull(BitmapFactory.decodeResource(context.resources, R.drawable.atrio_boas_vindas_vitral,
+                BitmapFactory.Options().apply { inScaled = false }))
+        }
+        seasons.forEach { season ->
+            val spec = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season))
+            sample(season.name) { requireNotNull(decodeWelcomeVitral(context, spec, 1080, 2461)).asAndroidBitmap() }
         }
     }
 

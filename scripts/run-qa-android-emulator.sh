@@ -451,6 +451,11 @@ fi
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   if [[ "$qa_apk" == "qaGeral" ]]; then
     mkdir -p qa-android-suite-results/welcome-preview
+    adb logcat -d -s AtrioQaWelcome:I '*:S' > qa-android-suite-results/welcome-decode.log
+    if [[ "$(grep -c 'decode=' qa-android-suite-results/welcome-decode.log || true)" -lt 7 ]]; then
+      qa_failed=1
+      echo "Diagnosticos de decodificacao incompletos"
+    fi
     if ! adb pull /data/local/tmp/atrio-welcome-preview/. qa-android-suite-results/welcome-preview/; then
       qa_failed=1
       echo "Falha ao coletar capturas das boas-vindas"
