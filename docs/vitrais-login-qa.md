@@ -16,3 +16,8 @@ Diretório: app/src/main/assets/login-vitrais/. Da raiz:
 ## Validação isolada
 `ATRIO_QA_GERAL_BUILD=1 ./gradlew :app:testQaGeralUnitTest :app:assembleQaGeral`
 Sem credenciais Firebase oficiais. Suíte instrumentada no grupo interaction do QA Android. A aprovação da compilação não equivale a validação física ou publicação.
+
+## Medições de QA
+- Commit 294340abfff010b3b062022610a2f1db66164f6b: 27 verificações aprovadas, duas ignoradas, nenhuma falha. Suíte de quatro testes de vitrais aprovada, inclusive formulário compacto a 200% (job 140255231625).
+- O grupo interaction passa a coletar SHA-256 das seis artes dentro do APK, tamanho total, payload comprimido e três amostras de abertura de Activity após force-stop. Evidências em qa-android-suite-results/login-vitrais-metrics. Não confundir payload com diferença entre APKs ou primeira janela com login pronto. Resultados do novo commit pendentes.
+- Ainda faltam comparação com uma build da base, inspeção visual/teclado real, paisagem e recuperação completa antes de liberação.

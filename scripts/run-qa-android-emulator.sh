@@ -482,5 +482,12 @@ if [[ "$qa_group" == "all" || "$qa_group" == "profiles" ]]; then
       http://127.0.0.1:8089/emulator/v1/projects/demo-atrio-v11:securityRules
   run_suite PerfilQaSaveEmulatorTest
 fi
+# Medições não alteram as demais suítes; somente QA Geral local, após interação.
+if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "$qa_failed" == 0 ]]; then
+  if ! bash scripts/measure-login-vitrais-qa.sh; then
+    qa_failed=1
+    echo "QA Android: medição de vitrais incompleta; consultar evidências"
+  fi
+fi
 echo "QA Android: suítes concluídas em processos separados; status=$qa_failed"
 exit "$qa_failed"
