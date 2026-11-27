@@ -11,5 +11,13 @@
         tools:replace="android:label">
         <service android:name=".AtrioPushService" tools:node="remove" />
         <provider android:name="androidx.core.content.FileProvider" tools:node="remove" />
+        <!-- Painel QA voluntário; nenhuma coleta ao receber Intent. -->
+        <activity android:name=".QaAndroidDiagnosticsActivity"
+            android:exported="true" android:label="Diagnóstico · QA Geral">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

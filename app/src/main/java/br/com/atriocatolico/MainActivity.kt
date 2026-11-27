@@ -186,6 +186,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        QaAndroidOpeningProbe.attach(this)
         QaConversationNotices.openFrom(this, intent)
         val prefs = getSharedPreferences("atrio-demo", Context.MODE_PRIVATE)
         setContent {

@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"
         tools:node="remove" />
 
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application
         android:label="Átrio Católico · Perfil QA"
         android:allowBackup="false"
@@ -23,6 +24,14 @@
             android:exported="true"
             android:configChanges="uiMode"
             android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- Painel QA voluntário; nenhuma coleta ao receber Intent. -->
+        <activity android:name=".QaAndroidDiagnosticsActivity"
+            android:exported="true" android:label="Diagnóstico · Perfil QA">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

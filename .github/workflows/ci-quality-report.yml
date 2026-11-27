@@ -30,7 +30,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Testar relator e consolidacao de diagnosticos em memoria
-        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review scripts.test_ci_autofix_handoff scripts.test_ci_autofix_pr_draft_plan scripts.test_ci_autofix_pr_draft_executor scripts.test_ci_autofix_automatic_gate -v
+        run: python3 -m unittest scripts.test_ci_quality_report scripts.test_ci_diagnostic_snapshot scripts.test_operational_diagnostic_center scripts.test_ci_log_identity_verifier scripts.test_ci_log_safe_analysis scripts.test_ci_autofix_policy scripts.test_ci_autofix_sandbox scripts.test_ci_autofix_qa_review scripts.test_ci_autofix_handoff scripts.test_ci_autofix_pr_draft_plan scripts.test_ci_autofix_pr_draft_executor scripts.test_ci_autofix_automatic_gate -v
       - name: Buscar checks e anexar sintese sem alterar APIs remotas
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -94,6 +94,11 @@ jobs:
             --handoff ci-autofix-handoff.json \
             --checkout-root . \
             --json ci-autofix-pr-draft-plan.json
+          python3 -m scripts.operational_diagnostic_center \
+            --ci-report ci-report.json \
+            --json ci-diagnostic-center.json \
+            --markdown ci-diagnostic-center.md
+          cat ci-diagnostic-center.md >> "$GITHUB_STEP_SUMMARY"
           cat ci-report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Preservar relatorio por execucao
         uses: actions/upload-artifact@v4
@@ -102,6 +107,8 @@ jobs:
           name: ci-readonly-${{ github.run_id }}
           path: |
             ci-report.json
+            ci-diagnostic-center.json
+            ci-diagnostic-center.md
             ci-diagnostics.json
             ci-job-evidence.json
             ci-log-signals.json
