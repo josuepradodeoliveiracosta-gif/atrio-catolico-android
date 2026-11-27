@@ -89,6 +89,46 @@ class WelcomeVitralUiTest {
         compose.runOnIdle { assertEquals(6, creates); assertEquals(6, logins) }
     }
 
+    @Test fun welcomeReturnReusesOnlyMatchingSuccessfulFrame() {
+        val visible = mutableStateOf(true)
+        val selected = mutableStateOf(Season.ADVENT)
+        val loads = java.util.concurrent.atomic.AtomicInteger()
+        var logins = 0
+        val cache = WelcomeVitralVisitCache()
+        val loader: (Context, WelcomeVitralSpec, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap? =
+            { _, _, _, _ ->
+                loads.incrementAndGet()
+                androidx.compose.ui.graphics.ImageBitmap(32, 32)
+            }
+        compose.setContent {
+            AtrioTheme {
+                if (visible.value) WelcomeVitralEntry({}, { logins++ }, season = selected.value,
+                    buildType = "qaGeral", loader = loader, visitCache = cache)
+            }
+        }
+        fun themeTag(season: Season) = "atrio-welcome-season-" +
+            requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season)).assetName.substringAfterLast('/')
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag(themeTag(Season.ADVENT), useUnmergedTree = true)
+                .fetchSemanticsNodes().size == 1
+        }
+        repeat(3) {
+            compose.runOnIdle { visible.value = false }
+            compose.waitForIdle()
+            compose.runOnIdle { visible.value = true }
+            compose.onNodeWithTag(themeTag(Season.ADVENT), useUnmergedTree = true).assertExists()
+            compose.onNodeWithTag("atrio-welcome-login").performScrollTo().performClick()
+        }
+        compose.runOnIdle { assertEquals(1, loads.get()); assertEquals(3, logins) }
+        compose.runOnIdle { selected.value = Season.EASTER }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag(themeTag(Season.EASTER), useUnmergedTree = true)
+                .fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithTag(themeTag(Season.ADVENT), useUnmergedTree = true).assertDoesNotExist()
+        compose.runOnIdle { assertEquals(2, loads.get()) }
+    }
+
     @Test fun missingAssetKeepsDefaultActions() {
         var creates = 0
         compose.setContent {

@@ -32,8 +32,9 @@ import com.google.firebase.firestore.Source
  * O passo de boas-vindas não consulta Firebase e não solicita permissões.
  */
 @Composable
-internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit) {
-    WelcomeVitralEntry(onCreate, onLogin)
+internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit,
+    visitCache: WelcomeVitralVisitCache? = null) {
+    WelcomeVitralEntry(onCreate, onLogin, visitCache = visitCache)
 }
 
 @Composable
