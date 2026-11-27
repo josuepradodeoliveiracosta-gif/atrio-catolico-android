@@ -32,8 +32,9 @@ import com.google.firebase.firestore.Source
  * O passo de boas-vindas não consulta Firebase e não solicita permissões.
  */
 @Composable
-internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit) {
-    WelcomeVitralEntry(onCreate, onLogin)
+internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit,
+    visitCache: WelcomeVitralVisitCache? = null) {
+    WelcomeVitralEntry(onCreate, onLogin, visitCache = visitCache)
 }
 
 @Composable
@@ -127,6 +128,11 @@ internal fun RegistrationCompactHeader(
 
 @Composable
 internal fun RegistrationParticipationScreen(onContinue: () -> Unit, onBack: () -> Unit) {
+    ParticipationVitralEntry(onContinue, onBack)
+}
+
+@Composable
+internal fun RegistrationParticipationDefault(onContinue: () -> Unit, onBack: () -> Unit) {
     val dark = isSystemInDarkTheme()
     val background = if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
     val titleColor = if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)

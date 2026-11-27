@@ -249,6 +249,7 @@ internal fun OnlineAuthScreen(
     var page by rememberSaveable {
         mutableStateOf(if (startAtLogin) AuthPage.LOGIN else AuthPage.WELCOME)
     }
+    val welcomeVisitCache = remember { WelcomeVitralVisitCache() }
     val registering = page == AuthPage.REGISTER
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -293,7 +294,8 @@ internal fun OnlineAuthScreen(
         AuthPage.WELCOME -> {
             RegistrationWelcomeScreen(
                 onCreate = { page = AuthPage.PARTICIPATION },
-                onLogin = { page = AuthPage.LOGIN }
+                onLogin = { page = AuthPage.LOGIN },
+                visitCache = welcomeVisitCache
             )
             return
         }

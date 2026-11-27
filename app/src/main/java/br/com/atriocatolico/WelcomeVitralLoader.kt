@@ -17,6 +17,30 @@ import kotlinx.coroutines.withContext
 /** A arte e a paleta só são publicadas juntas, após uma decodificação válida. */
 internal data class WelcomeVitralFrame(val spec: WelcomeVitralSpec, val bitmap: ImageBitmap)
 
+/** One successful frame, scoped to the authentication composition, never global.
+ * A different spec, viewport, loader or retry cannot reuse the old bitmap.
+ */
+internal class WelcomeVitralVisitCache {
+    private data class Entry(
+        val context: Context, val width: Int, val height: Int, val retry: Int,
+        val loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap?,
+        val frame: WelcomeVitralFrame,
+    )
+    private var entry: Entry? = null
+
+    fun get(context: Context, spec: WelcomeVitralSpec, width: Int, height: Int, retry: Int,
+        loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap?): WelcomeVitralFrame? =
+        entry?.takeIf {
+            it.context === context && it.frame.spec == spec && it.width == width &&
+                it.height == height && it.retry == retry && it.loader == loader
+        }?.frame
+
+    fun put(context: Context, width: Int, height: Int, retry: Int,
+        loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap?, frame: WelcomeVitralFrame) {
+        entry = Entry(context, width, height, retry, loader, frame)
+    }
+}
+
 internal fun welcomeVitralSampleSize(
     sourceWidth: Int, sourceHeight: Int, targetWidth: Int, targetHeight: Int,
 ): Int {
@@ -66,16 +90,22 @@ internal fun rememberWelcomeVitralFrame(
     buildType: String = BuildConfig.BUILD_TYPE,
     retry: Int = 0,
     loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap? = ::decodeWelcomeVitral,
+    visitCache: WelcomeVitralVisitCache? = null,
 ): WelcomeVitralFrame? {
     val context = LocalContext.current
     val spec = WelcomeVitralPolicy.resolve(buildType, season) ?: return null
     if (targetWidth <= 0 || targetHeight <= 0) return null
-    return key(context, spec, targetWidth, targetHeight, retry, loader) {
-        val frame by produceState<WelcomeVitralFrame?>(initialValue = null) {
-            val bitmap = withContext(Dispatchers.IO) {
-                loader(context, spec, targetWidth, targetHeight)
+    return key(context, spec, targetWidth, targetHeight, retry, loader, visitCache) {
+        val cached = visitCache?.get(context, spec, targetWidth, targetHeight, retry, loader)
+        val frame by produceState<WelcomeVitralFrame?>(initialValue = cached) {
+            if (cached == null) {
+                val bitmap = withContext(Dispatchers.IO) {
+                    loader(context, spec, targetWidth, targetHeight)
+                }
+                val decoded = bitmap?.let { WelcomeVitralFrame(spec, it) }
+                if (decoded != null) visitCache?.put(context, targetWidth, targetHeight, retry, loader, decoded)
+                value = decoded
             }
-            value = bitmap?.let { WelcomeVitralFrame(spec, it) }
         }
         frame
     }

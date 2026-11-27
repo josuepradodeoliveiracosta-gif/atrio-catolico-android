@@ -34,6 +34,7 @@ internal fun WelcomeVitralEntry(
     season: Season? = LocalLiturgicalDay.current.season,
     buildType: String = BuildConfig.BUILD_TYPE,
     loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap? = ::decodeWelcomeVitral,
+    visitCache: WelcomeVitralVisitCache? = null,
 ) {
     if (WelcomeVitralPolicy.resolve(buildType, season) == null) {
         RegistrationWelcomeDefault(onCreate, onLogin)
@@ -46,7 +47,7 @@ internal fun WelcomeVitralEntry(
         val frame = rememberWelcomeVitralFrame(
             targetWidth = with(density) { width.roundToPx() },
             targetHeight = with(density) { artHeight.roundToPx() },
-            season = season, buildType = buildType, loader = loader,
+            season = season, buildType = buildType, loader = loader, visitCache = visitCache,
         )
         if (frame == null) RegistrationWelcomeDefault(onCreate, onLogin)
         else WelcomeVitralScreen(frame, onCreate, onLogin)
