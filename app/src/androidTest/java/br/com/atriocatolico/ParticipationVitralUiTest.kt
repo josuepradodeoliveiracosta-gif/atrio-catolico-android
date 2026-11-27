@@ -38,6 +38,34 @@ class ParticipationVitralUiTest {
         }
     }
 
+    @Test fun actualParticipationAssetsDecodeAndMatchManifest() {
+        org.junit.Assume.assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val expected = mapOf(
+            "advento" to "6fca18e2fa6601fa7aaa655bbbd11a13256b435cbc64261c6752c6c273b34333",
+            "natal" to "901cf551c528b7540341a4d556c3a1cbb71b7117123cc401eaeef9ef73ab21cb",
+            "tempo_comum" to "b9d716e79f2b0b8582724dc35228d93b0042cb9fbb6d23ded51c3ae857ab080c",
+            "quaresma" to "d68c783dac68d7872aeae7a65455787fd0e5625917a1ce4456674fba4420dc96",
+            "triduo_pascal" to "de42a3128073e0b4dd2a2a1559b4833442ffaaa288ef661e2c72562ab0fcef68",
+            "pascoa" to "eee64b19f93e596a863d39b9bab10c3d8dfc49581839b8843b94e1932ffd4bf2",
+        )
+        assertEquals(6, expected.size)
+        for (season in seasons) {
+            val spec = requireNotNull(ParticipationVitralPolicy.resolve("qaGeral", season))
+            val name = spec.assetName.substringAfterLast('/').removePrefix("participacao_vitral_").removeSuffix(".webp")
+            val bytes = context.assets.open(spec.assetName).use { it.readBytes() }
+            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it.toInt() and 255) }
+            assertEquals(expected.getValue(name), hash)
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.assets.open(spec.assetName).use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+            assertEquals(790, bounds.outWidth)
+            assertEquals(1800, bounds.outHeight)
+            val bitmap = requireNotNull(decodeWelcomeVitral(context, spec, 360, 800))
+            assertTrue(bitmap.width >= 360 && bitmap.height >= 800)
+        }
+    }
+
     @Test fun sixThemesThreeChoicesWithLargeFontAndOneCallbackPerVisit() {
         val selected = mutableStateOf(seasons.first())
         val visit = mutableStateOf(0)
