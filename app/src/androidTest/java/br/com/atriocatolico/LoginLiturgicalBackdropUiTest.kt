@@ -1,6 +1,8 @@
 package br.com.atriocatolico
 
 import android.content.Context
+import android.net.ConnectivityManager
+import org.junit.Assume.assumeTrue
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import android.os.Build
@@ -137,6 +139,56 @@ class LoginLiturgicalBackdropUiTest {
         }
         // Sem senha e sem envio ao servidor.
         compose.onNodeWithTag("atrio-auth-submit").performScrollTo().assertIsNotEnabled()
+    }
+
+    @Test fun loginArtLoadsWithNetworkDisconnected() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        assumeTrue(InstrumentationRegistry.getArguments().getString("atrioOfflineVitralQa") == "true")
+        val app = FirebaseApp.getInstance()
+        check(BuildConfig.BUILD_TYPE == "qaGeral" && BuildConfig.DEBUG &&
+            app.options.projectId == "demo-atrio-v11" &&
+            Build.HARDWARE in setOf("ranchu", "goldfish")) { "Somente emulador QA isolado" }
+        val context = instrumentation.targetContext
+        val network = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        fun shell(command: String): String =
+            ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation
+                .executeShellCommand(command)).use { it.bufferedReader().readText().trim() }
+        val wifi = shell("settings get global wifi_on")
+        val mobile = shell("settings get global mobile_data")
+        val airplane = shell("settings get global airplane_mode_on")
+        check(wifi in setOf("0", "1") && mobile in setOf("0", "1") &&
+            airplane in setOf("0", "1")) { "Estado inicial de rede desconhecido" }
+        try {
+            shell("cmd connectivity airplane-mode enable")
+            shell("svc wifi disable")
+            shell("svc data disable")
+            compose.waitUntil(15_000) { network.activeNetwork == null }
+            val dates = listOf("2026-11-28" to Season.ORDINARY, "2026-11-29" to Season.ADVENT,
+                "2026-12-25" to Season.CHRISTMAS, "2027-02-10" to Season.LENT,
+                "2027-03-26" to Season.TRIDUUM, "2027-03-28" to Season.EASTER)
+            val day = mutableStateOf(LiturgicalCalendarBR.day(java.time.LocalDate.parse(dates.first().first)))
+            compose.setContent {
+                AtrioTheme {
+                    CompositionLocalProvider(LocalLiturgicalDay provides day.value) {
+                        OnlineAuthScreen(FirebaseAuth.getInstance(app), FirebaseFirestore.getInstance(app))
+                    }
+                }
+            }
+            dates.forEach { (date, season) ->
+                compose.runOnIdle { day.value = LiturgicalCalendarBR.day(java.time.LocalDate.parse(date)) }
+                val tag = "atrio-login-vitral-${season.name}"
+                compose.waitUntil(10_000) {
+                    compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size == 1
+                }
+                compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+                assertTrue("Rede deve permanecer desconectada", network.activeNetwork == null)
+            }
+            compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertIsDisplayed()
+        } finally {
+            shell("cmd connectivity airplane-mode " + if (airplane == "1") "enable" else "disable")
+            shell("svc wifi " + if (wifi == "1") "enable" else "disable")
+            shell("svc data " + if (mobile == "1") "enable" else "disable")
+        }
     }
 
     @Test fun captureRealLoginAtNormalFont() {

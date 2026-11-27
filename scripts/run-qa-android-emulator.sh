@@ -437,7 +437,11 @@ run_suite ReactionEmojiUiTest
 run_suite DiscussionDetailV2UiTest
 # Fonte ampliada sem dados de produção: compositor 200%, navegação 160%.
 run_suite AtrioTypographyAccessibilityUiTest
-run_suite LoginLiturgicalBackdropUiTest
+if [[ "$qa_group" == "interaction" && "$qa_apk" == "qaGeral" && "${CI:-}" == true ]]; then
+  run_suite LoginLiturgicalBackdropUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+else
+  run_suite LoginLiturgicalBackdropUiTest
+fi
 # Capturas vinculadas ao grupo que produziu cada evidencia.
 if [[ "$qa_group" == "all" || "$qa_group" == "interaction" ]]; then
   if [[ "$qa_apk" == "qaGeral" ]]; then

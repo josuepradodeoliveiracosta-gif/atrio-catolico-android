@@ -35,3 +35,8 @@ Sem credenciais Firebase oficiais. Suíte instrumentada no grupo interaction do 
 - Abertura a frio (ms): base 2019, 1776, 1763; candidato 2029, 1715, 1718. Medianas 1776 e 1718 ms; diferença -58 ms (-3,27%). Sem regressão observada nessa amostra pequena. Primeira janela da Activity, não login completamente pronto nem aparelho físico.
 - Integridade das seis artes no APK confirmada por SHA-256. Captura real do Tempo Comum no artefato 15166373815, diretório qa-android-suite-results/login-preview.
 - Sem ativação de produção; PR permanece em homologação.
+
+## Revisão do nono commit e ampliação de QA
+- c789011: seis testes específicos de vitrais passaram, inclusive preservação do formulário nas seis datas. A falha inicial da suíte de bots não se repetiu na tentativa 2 (job 140284841418). Resultado global 27 aprovados, dois ignorados. Causa inicial não comprovada.
+- Comparação A/B seguinte: base 2012 ms, candidato 2199 ms (+9,29%); rodada anterior -3,27%. Aumentamos a amostra para sete pares com ordem alternada e relatamos também a mediana das diferenças pareadas. Não há conclusão definitiva sobre regressão.
+- Novo teste offline exclusivo do emulador QA de CI, com opt-in de instrumentação, rede ativa ausente verificada e restauração de Wi-Fi, dados móveis e modo avião. Valida as seis imagens no formulário real sem rede; não submete login. Aguardando execução. Teclado real, paisagem, retorno após suspensão e recuperação completa continuam pendentes.

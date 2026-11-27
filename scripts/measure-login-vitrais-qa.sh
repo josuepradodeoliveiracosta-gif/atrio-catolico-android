@@ -87,9 +87,10 @@ done
 base_apk="$base_dir/app/build/outputs/apk/qaGeral/app-qaGeral.apk"
 test -f "$base_apk"
 test "$("$aapt" dump packagename "$base_apk")" = "$pkg"
-# Medir ambos novamente no mesmo AVD, em sequência alternada A/B.
-for trial in 1 2 3; do
-  for label in base candidate; do
+# Sete pares, invertendo a ordem em pares alternados para reduzir viés.
+for trial in 1 2 3 4 5 6 7; do
+  if (( trial % 2 == 1 )); then labels=(base candidate); else labels=(candidate base); fi
+  for label in "${labels[@]}"; do
     if [[ "$label" == base ]]; then sample_apk="$base_apk"; else sample_apk="$apk"; fi
     adb shell am force-stop "$pkg"
     adb install -r "$sample_apk" > "$report/ab-$label-install-$trial.log"
@@ -105,7 +106,7 @@ python3 - "$report" "$base_apk" "$apk" "$base_sha" "$(git rev-parse HEAD)" <<'PY
 import json, pathlib, re, statistics, sys, zipfile
 report, base, candidate = map(pathlib.Path, sys.argv[1:4])
 def times(label):
-    return [int(re.search(r"(?m)^TotalTime: (\d+)$", (report / f"ab-{label}-{i}.txt").read_text())[1]) for i in range(1, 4)]
+    return [int(re.search(r"(?m)^TotalTime: (\d+)$", (report / f"ab-{label}-{i}.txt").read_text())[1]) for i in range(1, 8)]
 with zipfile.ZipFile(base) as z:
     assert not any(n.startswith("assets/login-vitrais/") for n in z.namelist())
 a, b = times("base"), times("candidate")
@@ -120,8 +121,10 @@ result = {
     "base_cold_start_ms": a, "candidate_cold_start_ms": b,
     "base_median_ms": base_median, "candidate_median_ms": candidate_median,
     "median_delta_ms": candidate_median - base_median,
+    "paired_delta_ms": [y-x for x,y in zip(a,b)],
+    "paired_median_delta_ms": statistics.median(y-x for x,y in zip(a,b)),
     "median_delta_percent": round(100 * (candidate_median - base_median) / base_median, 2),
-    "note": "Mesmo AVD e variante qaGeral, três pares alternados, processo a frio. Não mede login totalmente pronto nem desempenho de celular."
+    "note": "Mesmo AVD e variante qaGeral, sete pares com ordem alternada, processo a frio. Não mede login totalmente pronto nem desempenho de celular."
 }
 (report / "base-comparison.json").write_text(json.dumps(result, indent=2) + "\n")
 print(json.dumps(result))
