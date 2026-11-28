@@ -60,7 +60,7 @@ internal fun WelcomeVitralEntry(
 private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit, onLogin: () -> Unit) {
     val p = frame.spec
     val surface = Color(p.readingSurface)
-    val accent = Color(p.accent)
+    val accent = Color(PreAuthGlassPolicy.lightReadingAccent(p.accent))
     val ink = Color(p.body)
     val white = Color(p.onPrimary)
     val createInteraction = remember { MutableInteractionSource() }
@@ -104,7 +104,7 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                         backdrop = glassBackdrop,
                         tint = Color(PreAuthGlassPolicy.lightSurface(p.readingSurface)),
                         contentColor = ink, shape = RoundedCornerShape(18.dp),
-                        border = BorderStroke(1.dp, Color(p.accent).copy(alpha = .28f)),
+                        border = BorderStroke(1.dp, accent.copy(alpha = .28f)),
                     ) {
                         Column(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
