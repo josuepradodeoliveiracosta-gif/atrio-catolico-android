@@ -103,6 +103,16 @@ class AndroidGroupTests(unittest.TestCase):
         self.assertIn("atrio-registration-preview", block)
         self.assertIn('exit "$qa_failed"', block)
 
+    def test_standard_glass_only_runs_three_affected_suites(self):
+        source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
+        start = 'if [[ "${ATRIO_QA_SUITE:-}" == PreAuthStandardGlass ]]; then'
+        block = source.split(start, 1)[1].split("\nfi", 1)[0]
+        self.assertEqual(re.findall(r"(?m)^  run_suite (\w+)", block),
+            ["WelcomeVitralUiTest", "ParticipationVitralUiTest", "LoginLiturgicalBackdropUiTest"])
+        self.assertEqual(block.count("atrioOfflineVitralQa=true"), 3)
+        self.assertIn("for kind in welcome participation login registration", block)
+        self.assertIn('exit "$qa_failed"', block)
+
     def test_entrance_glass_only_runs_two_changed_suites(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
         start = 'if [[ "${ATRIO_QA_SUITE:-}" == PreAuthEntranceGlass ]]; then'
