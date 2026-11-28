@@ -36,7 +36,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Testes da auditoria QA sem credenciais
-        run: python3 -m unittest scripts.test_guardian_qa_remote_readonly_audit scripts.test_guardian_qa_prepare_disabled_identities scripts.test_guardian_qa_compose_rules
+        run: python3 -m unittest scripts.test_guardian_qa_remote_readonly_audit scripts.test_guardian_qa_prepare_disabled_identities scripts.test_guardian_qa_compose_rules scripts.test_guardian_qa_remote_rules_ci
       - name: Testes do Worker oficial
         working-directory: cloudflare/guardian-worker
         run: npm test
