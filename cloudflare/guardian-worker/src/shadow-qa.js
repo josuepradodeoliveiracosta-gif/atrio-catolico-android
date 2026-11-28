@@ -1,4 +1,5 @@
 import {classify} from './policy.js';
+import {summarizeQaRisk} from './qa-risk.js';
 
 // Shadow QA reads only. No Firestore writes, decisions, notifications or content logs.
 // Explicit allowlist keeps the Firebase production project out of QA.
@@ -14,11 +15,13 @@ export function qaShadowAllowed(env={}) {
     && id.length<=30 && id!=='atrio-catolico'
     && env.GUARDIAN_V2_QA_PROJECT_ID===id;
 }
-export async function scanQaShadow(reader,env) {
+export async function scanQaShadow(reader,env,now=Date.now()) {
   if(!qaShadowAllowed(env))return {status:'disabled'};
   if(!reader||typeof reader.scan!=='function')throw Error('read_only_reader_required');
   const id=env.GUARDIAN_FIREBASE_PROJECT_ID;
   const prefix='projects/'+id+'/databases/(default)/documents/';
+  const riskEnabled=env.GUARDIAN_V2_QA_RISK_PREVIEW==='true' && env.GUARDIAN_V2_PRODUCTION_APPROVED!=='true' && env.GUARDIAN_V2_IDENTITY_APPROVED!=='true';
+  const riskRows=[];
   const counts={clear:0,review:0,hold_candidate:0,warning:0,invalid:0,reports:0,error:0};
   for(const group of QA_GROUPS) {
     try {
@@ -35,6 +38,7 @@ export async function scanQaShadow(reader,env) {
         const body=fields.body?.stringValue||'';
         const message=group==='posts'?title+' '+body:body;
         if(!message.trim()){counts.invalid++;continue;}
+        if(riskEnabled)riskRows.push({group,doc:d});
         const c=classify(message);
         if(c.level in counts)counts[c.level]++;
         else counts.invalid++;
@@ -44,5 +48,7 @@ export async function scanQaShadow(reader,env) {
       counts.error++;
     }
   }
-  return {status:'shadow_read_only',counts};
+  const result={status:'shadow_read_only',counts};
+  if(riskEnabled)result.risk=counts.error||counts.invalid?{status:'unavailable',remoteAuthorized:false,punishmentAuthorized:false}:summarizeQaRisk(riskRows,prefix,now);
+  return result;
 }
