@@ -22,15 +22,15 @@ jobs:
       - name: Obter revisão do evento
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 973f39cad212602350f2b3a6faefb0fe74687853
+          ref: 0a17b0f9b3eac7cadf66e9ca74241b2f1ccf8508
           persist-credentials: false
       - name: Conferir SHA e árvore do candidato
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "973f39cad212602350f2b3a6faefb0fe74687853"
-          test "$(git rev-parse HEAD^{tree})" = "f20b7a37b4d2bd13f729c27f33df9e7cc24a8b07"
+          test "$(git rev-parse HEAD)" = "0a17b0f9b3eac7cadf66e9ca74241b2f1ccf8508"
+          test "$(git rev-parse HEAD^{tree})" = "cd479bb8fb8b91b0bb8c570dbdcb1f182a4a5455"
       - name: Registrar o commit executado pela suíte
         run: git rev-parse HEAD
       - name: Preparar Java 17
