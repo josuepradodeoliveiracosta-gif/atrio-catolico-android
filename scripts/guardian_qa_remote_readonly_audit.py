@@ -60,6 +60,7 @@ def collect(query=read):
         "environment": GITHUB,
         "branches": GITHUB+"/deployment-branch-policies?per_page=100",
         "variables": GITHUB+"/variables?per_page=100",
+        "repository_variables": f"repos/{REPO}/actions/variables?per_page=100",
     }.items():
         data[k] = query(["gh","api","--method","GET",path])
     return data
@@ -96,17 +97,28 @@ def evaluate(data):
     check("um_provedor_no_pool","providers",lambda d:isinstance(d,list) and len(d)==1 and d[0]["name"]==PROVIDER_PATH and d[0]["state"]=="ACTIVE" and not d[0].get("disabled",False))
     check("provedor_oidc_github","provider",lambda d:d["name"]==PROVIDER_PATH and d["state"]=="ACTIVE" and not d.get("disabled",False) and d["oidc"]["issuerUri"]=="https://token.actions.githubusercontent.com" and d["attributeMapping"]["google.subject"]=="assertion.sub")
     check("condicao_cel_presente","provider",lambda d:isinstance(d["attributeCondition"],str) and bool(d["attributeCondition"].strip()))
-    check("sem_ancestral_pasta_org","ancestors",lambda d:isinstance(d,list) and len(d)==1 and d[0]["type"]=="project" and str(d[0]["id"])==NUMBER)
+    # The project was independently verified by projects describe. gcloud
+    # ancestry may identify that same project by its ID rather than number.
+    check("sem_ancestral_pasta_org","ancestors",lambda d:
+          status["projeto_qa_exato"]=="OK" and isinstance(d,list) and len(d)==1
+          and d[0]["type"]=="project" and str(d[0]["id"]) in {PROJECT,NUMBER})
     check("ambiente_qa_restrito","environment",lambda d:d["name"]==ENV and d["deployment_branch_policy"]["custom_branch_policies"] is True and d["deployment_branch_policy"]["protected_branches"] is False)
     def branches(d):
         b=d["branch_policies"]
         return len(b)==d["total_count"] and bool(b) and all(i["type"]=="branch" for i in b) and BRANCH in {i["name"] for i in b} and {i["name"] for i in b}<=ALLOWED_BRANCHES
     check("branches_qa_exatas","branches",branches)
-    def variables(d):
+    def variable_map(d):
         b=d["variables"]
-        if len(b)!=d["total_count"] or len({i["name"] for i in b})!=len(b):
-            return False
-        return all({i["name"]:i["value"] for i in b}.get(k)==v for k,v in EXPECTED_VARS.items())
+        if not isinstance(b,list) or len(b)!=d["total_count"] or len({i["name"] for i in b})!=len(b):
+            raise ValueError("incomplete_variables")
+        return {i["name"]:i["value"] for i in b}
+    def variables(d):
+        env_vars=variable_map(d)
+        repo_vars=variable_map(data["repository_variables"])
+        # Require all repository defaults, and reject any conflicting QA
+        # environment override regardless of when the runner resolves vars.
+        return all(repo_vars.get(k)==v and (k not in env_vars or env_vars[k]==v)
+                   for k,v in EXPECTED_VARS.items())
     check("variaveis_qa_exatas","variables",variables)
     # A present CEL expression is not a proven restrictive expression. Direct
     # bindings cannot exclude inherited/group/impersonation paths. Never GO.
