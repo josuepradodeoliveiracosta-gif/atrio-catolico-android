@@ -1,0 +1,65 @@
+name: Guardian QA - validacao sem APK
+
+on:
+  push:
+    branches: [qa/guardian-validation-no-apk]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardian-qa-validation-no-apk
+  cancel-in-progress: true
+
+jobs:
+  guardian-validation:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/qa/guardian-validation-no-apk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: 'true'
+      GOOGLE_APPLICATION_CREDENTIALS: ''
+      GOOGLE_OAUTH_ACCESS_TOKEN: ''
+      FIREBASE_TOKEN: ''
+      GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON: ''
+      GUARDIAN_V2_ENABLED: ''
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Testes do Worker oficial
+        working-directory: cloudflare/guardian-worker
+        run: npm test
+      - name: Testes do laboratorio Guardian
+        run: node --test tools/guardian-integration-lab/*.test.mjs
+      - name: Instalar dependencias fixadas do emulador
+        working-directory: tests/security
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Regras e fluxo original - projeto demo
+        working-directory: tests/security
+        env:
+          GCLOUD_PROJECT: demo-atrio-v11
+          GOOGLE_CLOUD_PROJECT: demo-atrio-v11
+        run: |
+          unset GUARDIAN_V2_ENABLED GOOGLE_APPLICATION_CREDENTIALS GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_TOKEN GOOGLE_OAUTH_ACCESS_TOKEN
+          node prepare.mjs
+          ./node_modules/.bin/firebase emulators:exec --only firestore --project demo-atrio-v11 "node guardian-v2.test.mjs && node guardian-v2-flow-e2e.test.mjs"
+      - name: Segregacao e concorrencia - projeto demo dedicado
+        working-directory: tests/security
+        env:
+          GCLOUD_PROJECT: demo-atrio-guardian-boundary
+          GOOGLE_CLOUD_PROJECT: demo-atrio-guardian-boundary
+        run: |
+          unset GUARDIAN_V2_ENABLED GOOGLE_APPLICATION_CREDENTIALS GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON FIREBASE_TOKEN GOOGLE_OAUTH_ACCESS_TOKEN
+          ./node_modules/.bin/firebase emulators:exec --config firebase.guardian-qa-boundary.json --only firestore --project demo-atrio-guardian-boundary "node guardian-qa-boundary.test.mjs"
+      - name: Registrar resultado
+        run: |
+          printf '%s\n' '### Guardian QA: testes concluidos' 'Worker, laboratorio, Rules, E2E e barreira transacional aprovados.' 'Sem APK, deploy, artefatos ou acesso Firebase remoto.' >> "$GITHUB_STEP_SUMMARY"
