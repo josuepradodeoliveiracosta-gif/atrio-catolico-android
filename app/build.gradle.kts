@@ -56,17 +56,18 @@ val atrioQaGeralCelularRound49 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA49"
 val atrioQaGeralCelularRound50 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA50") == "1"
 val atrioQaGeralCelularRound51 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA51") == "1"
 val atrioQaGeralCelularRound52 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA52") == "1"
+val atrioQaGeralCelularRound53 = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA53") == "1"
 val atrioQaGeralCelularRound43Fixture = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_FIXTURE") == "1"
 val atrioQaGeralCelularRound43NoticeLab = System.getenv("ATRIO_QA_GERAL_CELULAR_RODADA43_NOTICE_LAB") == "1"
 require(listOf(atrioQaGeralCelularRound41, atrioQaGeralCelularRound42,
-    atrioQaGeralCelularRound43, atrioQaGeralCelularRound44, atrioQaGeralCelularRound45, atrioQaGeralCelularRound46, atrioQaGeralCelularRound47, atrioQaGeralCelularRound48, atrioQaGeralCelularRound49, atrioQaGeralCelularRound50, atrioQaGeralCelularRound51, atrioQaGeralCelularRound52).count { it } <= 1) {
+    atrioQaGeralCelularRound43, atrioQaGeralCelularRound44, atrioQaGeralCelularRound45, atrioQaGeralCelularRound46, atrioQaGeralCelularRound47, atrioQaGeralCelularRound48, atrioQaGeralCelularRound49, atrioQaGeralCelularRound50, atrioQaGeralCelularRound51, atrioQaGeralCelularRound52, atrioQaGeralCelularRound53).count { it } <= 1) {
     "Escolha somente uma rodada de QA Geral Celular."
 }
 val atrioQaGeralCelularRound =
     atrioQaGeralCelularRound41 || atrioQaGeralCelularRound42 || atrioQaGeralCelularRound43 ||
-        atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52
+        atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52 || atrioQaGeralCelularRound53
 val atrioQaNoticeOrigin = System.getenv("ATRIO_QA_CONVERSATION_NOTICE_ORIGIN").orEmpty()
-require(!(atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52) ||
+require(!(atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52 || atrioQaGeralCelularRound53) ||
     (atrioQaGeralBuild && atrioQaGeralRemote && atrioQaGeralCelularFunctional &&
         !atrioQaGeralCelularFicticio && !atrioQaGeralCelularRoundFixture &&
         !atrioQaConversationNoticeLab && !atrioQaInboxDiscovery && !atrioQaInboxHttpsCandidate &&
@@ -85,7 +86,7 @@ require(!atrioQaInboxHttpsCandidate ||
 if (atrioQaNoticeOrigin.isNotEmpty()) {
     require(atrioQaGeralBuild && atrioQaGeralCelularFunctional &&
         (atrioQaGeralCelularRound43 || atrioQaGeralCelularRound43Fixture ||
-            atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52) && !atrioQaConversationNoticeLab) {
+            atrioQaGeralCelularRound44 || atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52 || atrioQaGeralCelularRound53) && !atrioQaConversationNoticeLab) {
         "A origem do Worker de avisos exige a rodada funcional do QA Geral Celular."
     }
     val host = runCatching { URI(atrioQaNoticeOrigin).host }.getOrNull().orEmpty()
@@ -472,8 +473,8 @@ android {
             }
             buildConfigField("String", "ATRIO_VISIBLE_VERSION", "\"$qaName\"")
             buildConfigField("boolean", "ATRIO_QA_CONVERSATION_NOTICE_LAB", atrioQaConversationNoticeLab.toString())
-            buildConfigField("boolean", "ATRIO_QA_RECEIPT_DIAGNOSTIC", (atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52).toString())
-            buildConfigField("boolean", "ATRIO_QA_RECEIPT_CLOCK_SKEW", (atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52).toString())
+            buildConfigField("boolean", "ATRIO_QA_RECEIPT_DIAGNOSTIC", (atrioQaGeralCelularRound45 || atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52 || atrioQaGeralCelularRound53).toString())
+            buildConfigField("boolean", "ATRIO_QA_RECEIPT_CLOCK_SKEW", (atrioQaGeralCelularRound46 || atrioQaGeralCelularRound47 || atrioQaGeralCelularRound48 || atrioQaGeralCelularRound49 || atrioQaGeralCelularRound50 || atrioQaGeralCelularRound51 || atrioQaGeralCelularRound52 || atrioQaGeralCelularRound53).toString())
             buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_ORIGIN", "\"$atrioQaNoticeOrigin\"")
             if (atrioQaConversationNoticeLab) {
                 buildConfigField("String", "ATRIO_QA_CONVERSATION_NOTICE_LAB_URL", "\"http://127.0.0.1:8092/notice\"")
@@ -560,6 +561,7 @@ androidComponents {
                 "qa-geral-celular" else "qa-geral"
             val pairSuffix = if (atrioQaGeralCelularPairCode.isEmpty()) "" else "-$atrioQaGeralCelularPairCode"
             val functionalSuffix = when {
+                atrioQaGeralCelularRound53 -> "-rodada-53"
                 atrioQaGeralCelularRound52 -> "-rodada-52"
                 atrioQaGeralCelularRound51 -> "-rodada-51"
                 atrioQaGeralCelularRound50 -> "-rodada-50"
@@ -578,6 +580,7 @@ androidComponents {
             }
             output.versionName.set("$atrioDebugVersionName-$suffix$pairSuffix$functionalSuffix")
             val code = when {
+                atrioQaGeralCelularRound53 -> 53
                 atrioQaGeralCelularRound52 -> 52
                 atrioQaGeralCelularRound51 -> 51
                 atrioQaGeralCelularRound50 -> 50
