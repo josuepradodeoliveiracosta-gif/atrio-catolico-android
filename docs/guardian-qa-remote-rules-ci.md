@@ -1,0 +1,7 @@
+# GitHub Actions: regressão das regras publicadas QA V2
+
+Última regressão com Rules do repositório: 46163383183, BASELINE=0, BOUNDARY=0, CANDIDATE=0, 177 allows. Não equivale ao snapshot remoto.
+
+O workflow manual já existente na main é reutilizado SOMENTE na branch qa/guardian-validation-no-apk com implementação distinta e identidade independente guardian-qa-rules-ci. Não alterar main nem o leitor antigo. Executar manualmente com confirm_qa=true; provedor WIF novo restrito a ID do repositório, ID do proprietário, ref, workflow_ref, evento workflow_dispatch e SHA exato do commit de validação. A conta deve possuir apenas um papel personalizado com firebaserules.releases.get, firebaserules.rulesets.get, resourcemanager.projects.get (verificar billing) e serviceusage.services.use; não conceder Firestore, Auth, publicação, chaves ou acesso à produção. Role e pool exclusivos QA. A autorização inicial requer operador Google Cloud. Não habilitar APIs nem billing automaticamente. Sem WIF provisionado, falha fechada.
+
+O workflow usa três GETs (billing, release, ruleset), credencial de cinco minutos, executa as regressões com ambiente local sem tokens e divulga somente hashes e códigos de resultado. A fonte privada não vira commit, artifact ou log. Não grava documentos e não publica Rules. As ações são pinadas por commit. O SHA do workflow deve permanecer fixo; mudança exige nova revisão e autorização WIF. Nenhuma prova de privilégio efetivo ou publicação até configuração e execução real.
