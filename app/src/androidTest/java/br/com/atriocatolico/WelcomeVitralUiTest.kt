@@ -79,8 +79,9 @@ class WelcomeVitralUiTest {
                         PreAuthGlassBackdrop(bitmap, IntSize(160.dp.roundToPx(),160.dp.roundToPx()),
                             IntOffset(20.dp.roundToPx(),20.dp.roundToPx()), Color.White)
                     },
-                    tint = Color(PreAuthGlassPolicy.lightSurface(0xFFFFF9F1L)),
-                    contentColor = Color.Black,
+                    tint = Color(PreAuthGlassPolicy.darkSurface(PreAuthGlassPolicy.ENTRANCE_BASE)),
+                    localScrim = Color(PreAuthGlassPolicy.ENTRANCE_SCRIM),
+                    contentColor = Color(PreAuthGlassPolicy.ENTRANCE_BODY),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color.Black.copy(alpha=.28f)),
                     modifier = Modifier.offset(20.dp,20.dp).size(120.dp),
