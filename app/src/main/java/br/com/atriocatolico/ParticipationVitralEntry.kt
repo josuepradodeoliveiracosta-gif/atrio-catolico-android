@@ -2,7 +2,7 @@ package br.com.atriocatolico
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -18,7 +18,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import kotlin.math.roundToInt
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
@@ -82,43 +87,49 @@ internal fun ParticipationVitralEntry(
         val palette = frame?.spec
         val title = palette?.let { Color(it.title) } ?: defaultTitle
         val outline = palette?.let { Color(it.secondaryOutline) } ?: defaultOutline
-        val surface = palette?.let { Color(it.readingSurface) } ?: defaultBackground
+        val region = frame?.let { ParticipationVitralPolicy.readingRegion(season) }
         Column(
             Modifier.fillMaxSize().background(defaultBackground).verticalScroll(scroll)
                 .testTag("atrio-participation-scroll"),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(
-                Modifier.width(width).heightIn(min = maxOf(viewportHeight, if (frame != null) artHeight else 0.dp))
-                    .background(defaultBackground),
-                contentAlignment = Alignment.TopCenter,
-            ) {
-                // The artwork has no spoken semantics and never intercepts touch.
-            if (frame != null) {
-                Image(
-                    bitmap = frame.bitmap,
-                    contentDescription = null,
-                    modifier = Modifier.width(width).height(artHeight)
-                        .testTag("atrio-participation-season-" + frame.spec.assetName.substringAfterLast('/')),
-                    contentScale = ContentScale.Fit,
-                    alignment = Alignment.TopCenter,
-                )
-            }
-            // Stable composition for controls even when the image or season changes.
-            Column(
-                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Column(
-                    Modifier.widthIn(max = if (palette == null) 440.dp else 392.dp)
-                        .fillMaxWidth()
-                        .background(surface, RoundedCornerShape(14.dp))
-                        .padding(horizontal = if (palette == null) 0.dp else 12.dp,
-                            vertical = if (palette == null) 0.dp else 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+            Layout(
+                modifier = Modifier.width(width).background(defaultBackground),
+                content = {
+                    if (frame != null && region != null) {
+                        // Decorative image: no spoken description or touch interception.
+                        Canvas(Modifier.testTag("atrio-participation-season-" +
+                            frame.spec.assetName.substringAfterLast('/'))) {
+                            val w = size.width.roundToInt()
+                            val h = size.height.roundToInt()
+                            val natural = (w * ratio).roundToInt()
+                            val geometry = region.vertical(natural, 0, 0)
+                            val source = frame.bitmap
+                            val sourceTop = (source.height * region.start).roundToInt()
+                            val sourceEnd = (source.height * region.end).roundToInt()
+                            val middle = h - geometry.top - geometry.bottom
+                            fun band(sy: Int, sh: Int, dy: Int, dh: Int) {
+                                if (sh > 0 && dh > 0) drawImage(
+                                    image = source,
+                                    srcOffset = IntOffset(0, sy),
+                                    srcSize = IntSize(source.width, sh),
+                                    dstOffset = IntOffset(0, dy),
+                                    dstSize = IntSize(w, dh),
+                                    filterQuality = FilterQuality.Medium,
+                                )
+                            }
+                            band(0, sourceTop, 0, geometry.top)
+                            band(sourceTop, sourceEnd - sourceTop, geometry.top, middle)
+                            band(sourceEnd, source.height - sourceEnd,
+                                geometry.top + middle, geometry.bottom)
+                        }
+                    }
+                    // No solid card over the verified light reading band.
+                    Column(
+                        Modifier.fillMaxWidth().testTag("atrio-participation-reading"),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(if (region == null) 12.dp else 8.dp),
+                    ) {
                     RegistrationCompactHeader(title, outline, backAction, enabled = !leaving)
                     Text(
                         "Como você quer participar?",
@@ -148,8 +159,31 @@ internal fun ParticipationVitralEntry(
                             shape = RoundedCornerShape(14.dp),
                         ) { Text(label, textAlign = TextAlign.Center) }
                     }
+                    }
+                },
+            ) { measurables, constraints ->
+                val w = constraints.maxWidth
+                val side = if (region == null) 24.dp.roundToPx()
+                    else (w * 0.14f).roundToInt().coerceAtLeast(1)
+                val readingWidth = (w - 2 * side).coerceAtLeast(1)
+                val controls = measurables.last().measure(
+                    Constraints(minWidth = readingWidth, maxWidth = readingWidth)
+                )
+                if (region == null || frame == null) {
+                    val padding = 24.dp.roundToPx()
+                    val height = maxOf(viewportHeight.roundToPx(), controls.height + 2 * padding)
+                    layout(w, height) { controls.placeRelative((w - readingWidth) / 2, padding) }
+                } else {
+                    val natural = (w * ratio).roundToInt()
+                    val geometry = region.vertical(natural, controls.height, 8.dp.roundToPx())
+                    val art = measurables.first().measure(Constraints.fixed(w, geometry.total))
+                    val height = maxOf(viewportHeight.roundToPx(), geometry.total)
+                    val artTop = (height - geometry.total) / 2
+                    layout(w, height) {
+                        art.placeRelative(0, artTop)
+                        controls.placeRelative((w - readingWidth) / 2, artTop + geometry.contentTop)
+                    }
                 }
-            }
             }
         }
     }

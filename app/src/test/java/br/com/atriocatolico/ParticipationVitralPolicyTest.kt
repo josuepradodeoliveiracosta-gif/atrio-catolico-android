@@ -46,6 +46,24 @@ class ParticipationVitralPolicyTest {
         }
     }
 
+    @Test fun readingGeometryKeepsOrnamentsAndCentersContent() {
+        for (season in expected.keys) {
+            val region = requireNotNull(ParticipationVitralPolicy.readingRegion(season))
+            val normal = region.vertical(1800, 600, 16)
+            assertEquals(1800, normal.total)
+            assertTrue(normal.contentTop >= normal.top + 16)
+            assertEquals(normal.middle / 2f,
+                normal.contentTop - normal.top + 300f, 1f)
+            val enlarged = region.vertical(1800, 1400, 16)
+            assertEquals(normal.top, enlarged.top)
+            assertEquals(normal.bottom, enlarged.bottom)
+            assertEquals(1432, enlarged.middle)
+            assertEquals(enlarged.top + 16, enlarged.contentTop)
+            assertTrue(enlarged.total > normal.total)
+        }
+        assertNull(ParticipationVitralPolicy.readingRegion(Season.ATRIO))
+    }
+
     private fun contrast(a: Long, b: Long): Double {
         fun lum(c: Long): Double {
             fun channel(shift: Int): Double {

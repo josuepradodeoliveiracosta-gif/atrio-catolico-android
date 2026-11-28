@@ -120,8 +120,24 @@ class ParticipationVitralUiTest {
                     awaitTheme(season)
                     val choice = compose.onNodeWithTag("atrio-participation-choice-$index")
                     choice.performScrollTo().assertIsDisplayed().assertIsEnabled().assertTextContains(labels[index])
-                    if (index == 0) captureParticipation(season.name.lowercase(java.util.Locale.ROOT) +
-                        (if (night) "-escuro" else "-claro"))
+                    if (index == 0) {
+                        val art = compose.onNodeWithTag(tag(season), useUnmergedTree = true).fetchSemanticsNode()
+                        val reading = compose.onNodeWithTag("atrio-participation-reading", useUnmergedTree = true)
+                            .fetchSemanticsNode()
+                        val region = requireNotNull(ParticipationVitralPolicy.readingRegion(season))
+                        val natural = kotlin.math.round(art.size.width * (1800f / 790f)).toInt()
+                        val top = kotlin.math.round(natural * region.start).toInt()
+                        val bottom = natural - kotlin.math.round(natural * region.end).toInt()
+                        val relativeY = reading.positionInRoot.y - art.positionInRoot.y
+                        val center = (top + art.size.height - bottom) / 2f
+                        assertTrue("Leitura invade ornamento superior", relativeY >= top - 2)
+                        assertTrue("Leitura invade ornamento inferior",
+                            relativeY + reading.size.height <= art.size.height - bottom + 2)
+                        assertTrue("Leitura não centralizada na faixa livre",
+                            kotlin.math.abs(relativeY + reading.size.height / 2f - center) <= 2f)
+                        captureParticipation(season.name.lowercase(java.util.Locale.ROOT) +
+                            (if (night) "-escuro" else "-claro"))
+                    }
                     choice.performClick()
                     choice.assertIsNotEnabled()
                 }

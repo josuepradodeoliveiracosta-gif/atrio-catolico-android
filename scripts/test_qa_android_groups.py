@@ -72,6 +72,14 @@ class AndroidGroupTests(unittest.TestCase):
                 self.assertEqual(found, list(suites))
                 self.assertRegex(block[1], r'(?m)^  exit "\$qa_failed"$')
 
+    def test_participation_focal_keeps_offline_and_captures(self):
+        source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
+        start = 'if [[ "${ATRIO_QA_SUITE:-}" == ParticipationVitralUiTest ]]; then'
+        block = source.split(start, 1)[1].split("\nfi", 1)[0]
+        self.assertIn("run_suite ParticipationVitralUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true", block)
+        self.assertIn("atrio-participation-preview", block)
+        self.assertIn('exit "$qa_failed"', block)
+
     def test_legacy_and_captures(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
         self.assertIn('qa_group="${ATRIO_QA_SUITE_GROUP:-all}"', source)
