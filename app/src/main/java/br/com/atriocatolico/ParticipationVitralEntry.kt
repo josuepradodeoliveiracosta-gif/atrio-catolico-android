@@ -159,6 +159,7 @@ internal fun ParticipationVitralEntry(
                             PreAuthFormBaseColor, scrim = PreAuthFormScrim, readingRegion = region,
                         ) else null
                         PreAuthStandardGlassPanel(
+                            paleArtwork = true,
                             backdrop = backdrop,
                             modifier = Modifier.fillMaxWidth().testTag("atrio-participation-reading")
                                 .onGloballyPositioned { glassPlacement = PreAuthFormPlacement.from(it) },

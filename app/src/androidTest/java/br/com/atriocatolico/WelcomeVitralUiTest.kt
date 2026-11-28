@@ -272,8 +272,8 @@ class WelcomeVitralUiTest {
             compose.onNodeWithTag("atrio-welcome-vitral", useUnmergedTree = true).assertIsDisplayed()
             captureWelcome(label + "-arte")
             compose.onNodeWithTag("atrio-welcome-login").performScrollTo().assertIsDisplayed()
-            assertDarkEntranceGlass("atrio-welcome-glass")
             captureWelcome(label + "-acoes")
+            assertDarkEntranceGlass("atrio-welcome-glass")
             compose.onNodeWithTag("atrio-welcome-login").performClick()
             compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertIsDisplayed()
             // LOGIN não possui RegistrationCompactHeader. Exercitar BackHandler real.
@@ -393,16 +393,19 @@ class WelcomeVitralUiTest {
 
     private fun assertDarkEntranceGlass(tag: String) {
         val pixels = compose.onNodeWithTag(tag, useUnmergedTree = true).captureToImage().toPixelMap()
+        // Sample the side padding only, away from rounded corners, text and
+        // liturgical buttons. Test the actual glass rather than foreground colors.
         var dark = 0
         var total = 0
-        for (x in pixels.width/10 until pixels.width*9/10 step 8) {
-            for (y in pixels.height/10 until pixels.height*9/10 step 8) {
+        for (y in pixels.height/5 until pixels.height*4/5 step 4) {
+            for (x in listOf(pixels.width*3/100, pixels.width*97/100)) {
                 val c = pixels[x,y]
-                if (c.red < .35f && c.green < .35f && c.blue < .35f) dark++
+                if (c.red <= .20f && c.green <= .20f && c.blue <= .20f) dark++
                 total++
             }
         }
-        assertTrue("Painel deve manter tonalidade escura do cadastro: $dark/$total", total > 0 && dark.toDouble()/total >= .60)
+        assertTrue("Vidro deve permanecer escuro nas margens: $dark/$total",
+            total > 0 && dark.toDouble()/total >= .95)
     }
 
     private fun captureWelcome(name: String) {

@@ -101,6 +101,7 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                         )
                     }
                     PreAuthStandardGlassPanel(
+                        paleArtwork = true,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
                             .testTag("atrio-welcome-glass"),
                         backdrop = glassBackdrop,

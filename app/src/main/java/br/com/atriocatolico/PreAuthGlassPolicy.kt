@@ -14,6 +14,9 @@ internal object PreAuthGlassPolicy {
     const val GLASS_TITLE: Long = 0xFFFFE4AAL
     const val GLASS_BODY: Long = 0xFFFFF5E6L
     const val GLASS_OUTLINE: Long = 0xFFD9B97BL
+    // The entrance artwork has an intentionally pale reading region. Attenuate
+    // its light only behind glass to match the darker registration reference.
+    const val PALE_ART_COMPENSATION: Long = 0xA6000000L
     const val GLASS_RADIUS_DP: Int = 20
     const val GLASS_BORDER_DP: Int = 1
     const val GLASS_BORDER_ALPHA: Float = .55f

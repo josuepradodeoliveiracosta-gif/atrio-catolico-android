@@ -137,12 +137,14 @@ internal val PreAuthFormScrim = Color(PreAuthGlassPolicy.ART_SCRIM)
 internal fun PreAuthStandardGlassPanel(
     backdrop: PreAuthGlassBackdrop?,
     modifier: Modifier = Modifier,
+    paleArtwork: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     PreAuthGlassPanel(
         modifier = modifier,
         backdrop = backdrop,
         tint = Color(PreAuthGlassPolicy.standardSurface()),
+        localScrim = if (paleArtwork) Color(PreAuthGlassPolicy.PALE_ART_COMPENSATION) else Color.Transparent,
         contentColor = Color(PreAuthGlassPolicy.GLASS_BODY),
         shape = RoundedCornerShape(PreAuthGlassPolicy.GLASS_RADIUS_DP.dp),
         border = BorderStroke(PreAuthGlassPolicy.GLASS_BORDER_DP.dp,

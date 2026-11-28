@@ -42,6 +42,11 @@ class PreAuthGlassPolicyTest {
                 val surface = blend(tint, blend(PreAuthGlassPolicy.ART_SCRIM, behind))
                 assertTrue(contrast(PreAuthGlassPolicy.GLASS_TITLE,surface) >= 8.0)
                 assertTrue(channel(surface,16) <= 56 && channel(surface,8) <= 56 && channel(surface,0) <= 56)
+                val compensated = blend(tint, blend(PreAuthGlassPolicy.PALE_ART_COMPENSATION,
+                    blend(PreAuthGlassPolicy.ART_SCRIM, behind)))
+                assertTrue(channel(compensated,16) <= 33 && channel(compensated,8) <= 33 && channel(compensated,0) <= 33)
+                assertTrue(contrast(PreAuthGlassPolicy.GLASS_TITLE,compensated) >= 10.0)
+                assertTrue(contrast(PreAuthGlassPolicy.GLASS_BODY,compensated) >= 10.0)
                 assertTrue(contrast(PreAuthGlassPolicy.GLASS_BODY,surface) >= 4.5)
                 assertTrue(contrast(PreAuthGlassPolicy.GLASS_OUTLINE,surface) >= 3.0)
                 assertTrue(contrast(PreAuthGlassPolicy.GLASS_OUTLINE,p.primary) >= 3.0)
