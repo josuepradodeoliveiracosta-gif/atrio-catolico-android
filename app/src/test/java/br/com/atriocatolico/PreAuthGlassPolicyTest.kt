@@ -58,10 +58,12 @@ class PreAuthGlassPolicyTest {
         for (season in seasons) {
             val p = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season))
             val tint = PreAuthGlassPolicy.lightSurface(p.readingSurface)
-            assertEquals(214L, tint shr 24)
+            assertEquals(166L, tint shr 24)
+            val readingAccent = PreAuthGlassPolicy.lightReadingAccent(p.accent)
+            assertEquals(255L, readingAccent shr 24)
             for (behind in listOf(0xFF000000L,0xFFFFFFFFL,0xFF234538L)) {
                 val surface = blend(tint,behind)
-                assertTrue("title: $season", contrast(p.accent,surface)>=4.5)
+                assertTrue("title: $season", contrast(readingAccent,surface)>=4.8)
                 assertTrue("body: $season", contrast(p.body,surface)>=4.5)
                 assertTrue("primary: $season", contrast(p.onPrimary,p.primary)>=4.5)
                 assertTrue("pressed: $season", contrast(p.onPrimary,p.pressed)>=4.5)
