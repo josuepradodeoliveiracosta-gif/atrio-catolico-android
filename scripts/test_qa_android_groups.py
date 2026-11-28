@@ -11,6 +11,9 @@ GROUPS = {
     "bots": ["ThreeBotsAndroidUiTest","ThreeBotsAuthenticatedAndroidUiTest","ThreeBotsOnlineEmulatorTest","AtrioConversasCompostasEmulatorUiTest","AtrioConversasNavegacaoEmulatorUiTest","AtrioConversasForaDaConfiguracaoEmulatorUiTest","AtrioConversasTrocaContaEmulatorUiTest"],
 }
 FOCAL_ROUTES = {
+    'if [[ "${ATRIO_QA_SUITE:-}" == PreAuthLegalGlassUiTest ]]; then': (
+        "PreAuthLegalGlassUiTest",
+    ),
     'if [[ "${ATRIO_QA_SUITE:-}" == ProfileV3ConsentEmulatorUiTest ]]; then': (
         "WelcomeVitralTalkBackUiTest",
         "ParticipationVitralTalkBackUiTest",

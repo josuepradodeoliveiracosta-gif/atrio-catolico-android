@@ -24,6 +24,16 @@ class PreAuthGlassPolicyTest {
         return .2126*linear(16)+.7152*linear(8)+.0722*linear(0)
     }
     private fun contrast(a: Long,b: Long) = (maxOf(lum(a),lum(b))+.05)/(minOf(lum(a),lum(b))+.05)
+    @Test fun modalTintReadableEvenWithoutWindowDimming() {
+        val tint = PreAuthGlassPolicy.modalSurface()
+        assertEquals(214L, tint shr 24)
+        for (behind in listOf(0xFF000000L, 0xFFFFFFFFL)) {
+            val surface = blend(tint, behind)
+            assertTrue(contrast(PreAuthGlassPolicy.MODAL_TITLE, surface) >= 4.5)
+            assertTrue(contrast(PreAuthGlassPolicy.MODAL_BODY, surface) >= 4.5)
+            assertTrue(contrast(PreAuthGlassPolicy.MODAL_OUTLINE, surface) >= 3.0)
+        }
+    }
     @Test fun blurRequiresAndroid12AndHardwareAndOptIn() {
         for (sdk in 26..30) assertFalse(PreAuthGlassPolicy.canBlur(sdk, true))
         for (sdk in 31..35) {

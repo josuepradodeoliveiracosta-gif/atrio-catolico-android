@@ -508,7 +508,8 @@ internal fun OnlineAuthScreen(
                                 append("Regras da Comunidade")
                             }
                             append(".")
-                        }, style = MaterialTheme.typography.bodyMedium)
+                        }, style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.testTag("atrio-auth-terms-links"))
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
@@ -525,7 +526,8 @@ internal fun OnlineAuthScreen(
                                 append("Política de Privacidade")
                             }
                             append(".")
-                        }, style = MaterialTheme.typography.bodyMedium)
+                        }, style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.testTag("atrio-auth-privacy-link"))
                     }
                 }
                 if (error.isNotBlank()) {
@@ -655,7 +657,8 @@ internal fun OnlineAuthScreen(
     }
     }
     if (legalDocument.isNotEmpty()) {
-        AlertDialog(
+        PreAuthLegalDialog(
+            glass = glassForm,
             onDismissRequest = { legalDocument = "" },
             title = {
                 Text(if (legalDocument == "terms") "Termos de Uso — prévia"
@@ -684,13 +687,13 @@ internal fun OnlineAuthScreen(
                     )
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { legalDocument = "" }) { Text("Fechar") }
-            }
+            confirmLabel = "Fechar",
+            onConfirm = { legalDocument = "" },
         )
     }
     if (showRules) {
-        AlertDialog(
+        PreAuthLegalDialog(
+            glass = glassForm,
             onDismissRequest = { showRules = false },
             title = { Text("Regras da Comunidade") },
             text = {
@@ -699,9 +702,8 @@ internal fun OnlineAuthScreen(
                         style = MaterialTheme.typography.bodyMedium)
                 }
             },
-            confirmButton = {
-                TextButton(onClick = { showRules = false }) { Text("Entendi") }
-            }
+            confirmLabel = "Entendi",
+            onConfirm = { showRules = false },
         )
     }
 }

@@ -468,6 +468,22 @@ if [[ "${ATRIO_QA_SUITE:-}" == LoginLiturgicalBackdropUiTest ]]; then
   fi
   exit "$qa_failed"
 fi
+if [[ "${ATRIO_QA_SUITE:-}" == PreAuthLegalGlassUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
+    echo "Diálogos legais exigem QA Geral local" >&2; exit 2
+  }
+  run_suite PreAuthLegalGlassUiTest
+  mkdir -p qa-android-suite-results/legal-glass-preview
+  if ! adb pull /data/local/tmp/atrio-legal-glass-preview/. qa-android-suite-results/legal-glass-preview/; then
+    qa_failed=1
+  fi
+  for preview in terms privacy rules; do
+    if [[ ! -s "qa-android-suite-results/legal-glass-preview/$preview.png" ]]; then
+      qa_failed=1
+    fi
+  done
+  exit "$qa_failed"
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2
