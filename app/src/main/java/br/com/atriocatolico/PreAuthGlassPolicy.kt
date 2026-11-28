@@ -9,6 +9,12 @@ internal object PreAuthGlassPolicy {
     const val LIGHT_ALPHA: Int = 214 // 214/255
     const val DARK_ALPHA: Int = 153 // 60%
     const val BLUR_RADIUS_DP: Int = 12
+    // Bound the optional GPU layer even for scrollable forms and 200% fonts.
+    const val MAX_BLUR_PIXELS: Long = 2_500_000L
+    const val MAX_BLUR_EDGE: Int = 4096
+    fun withinBlurBudget(width: Int, height: Int, lowRam: Boolean): Boolean =
+        !lowRam && width in 1..MAX_BLUR_EDGE && height in 1..MAX_BLUR_EDGE &&
+            width.toLong() * height.toLong() <= MAX_BLUR_PIXELS
     const val MODAL_ALPHA: Int = 214 // Independent window: safe even over white.
     const val MODAL_BASE: Long = 0xFF211922L
     const val MODAL_TITLE: Long = 0xFFFFE4AAL

@@ -24,6 +24,15 @@ class PreAuthGlassPolicyTest {
         return .2126*linear(16)+.7152*linear(8)+.0722*linear(0)
     }
     private fun contrast(a: Long,b: Long) = (maxOf(lum(a),lum(b))+.05)/(minOf(lum(a),lum(b))+.05)
+    @Test fun blurBudgetRejectsLargeLayersAndLowRam() {
+        assertTrue(PreAuthGlassPolicy.withinBlurBudget(1000, 2500, false))
+        assertFalse(PreAuthGlassPolicy.withinBlurBudget(1000, 2501, false))
+        assertFalse(PreAuthGlassPolicy.withinBlurBudget(400, 4097, false))
+        assertFalse(PreAuthGlassPolicy.withinBlurBudget(0, 100, false))
+        assertFalse(PreAuthGlassPolicy.withinBlurBudget(-1, 100, false))
+        assertFalse(PreAuthGlassPolicy.withinBlurBudget(Int.MAX_VALUE, Int.MAX_VALUE, false))
+        assertFalse(PreAuthGlassPolicy.withinBlurBudget(400, 400, true))
+    }
     @Test fun modalTintReadableEvenWithoutWindowDimming() {
         val tint = PreAuthGlassPolicy.modalSurface()
         assertEquals(214L, tint shr 24)

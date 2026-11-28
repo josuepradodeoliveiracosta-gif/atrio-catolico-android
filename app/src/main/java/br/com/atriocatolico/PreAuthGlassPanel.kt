@@ -1,6 +1,10 @@
 package br.com.atriocatolico
 
 import android.os.Build
+import android.app.ActivityManager
+import android.content.Context
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -62,7 +66,13 @@ internal fun PreAuthGlassPanel(
     enableBlur: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val useBlur = backdrop != null && backdrop.viewport.width > 0 &&
+    val context = LocalContext.current
+    val lowRam = remember(context) {
+        (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.isLowRamDevice ?: true
+    }
+    var panelSize by remember { mutableStateOf(IntSize.Zero) }
+    val useBlur = PreAuthGlassPolicy.withinBlurBudget(panelSize.width, panelSize.height, lowRam) &&
+        backdrop != null && backdrop.viewport.width > 0 &&
         backdrop.viewport.height > 0 && PreAuthGlassPolicy.canBlur(
             Build.VERSION.SDK_INT, LocalView.current.isHardwareAccelerated, enableBlur)
     Surface(
@@ -74,7 +84,7 @@ internal fun PreAuthGlassPanel(
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
-        Box {
+        Box(Modifier.onSizeChanged { panelSize = it }) {
             if (useBlur && backdrop != null) {
                 Canvas(
                     Modifier.matchParentSize()

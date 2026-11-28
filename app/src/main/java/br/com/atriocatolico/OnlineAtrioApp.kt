@@ -531,10 +531,13 @@ internal fun OnlineAuthScreen(
                     }
                 }
                 if (error.isNotBlank()) {
-                    Text(error, modifier = Modifier.testTag("atrio-auth-error"),
+                    Text(error, modifier = Modifier.testTag("atrio-auth-error")
+                        .then(if (glassForm) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier),
                         color = if (darkForm) formError else MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
                 }
-                if (resetInfo.isNotBlank()) Text(resetInfo, color = if (glassForm) formText else Wine, fontSize = AtrioType.secondary)
+                if (resetInfo.isNotBlank()) Text(resetInfo, color = if (glassForm) formText else Wine,
+                    fontSize = AtrioType.secondary, modifier = Modifier.testTag("atrio-auth-reset-info")
+                        .then(if (glassForm) Modifier.semantics { liveRegion = LiveRegionMode.Polite } else Modifier))
                 Button(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("atrio-auth-submit"),
                     colors = if (darkForm) ButtonDefaults.buttonColors(
@@ -643,7 +646,8 @@ internal fun OnlineAuthScreen(
                                 else "Não foi possível solicitar a recuperação agora."
                             }
                         }
-                    }, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    }, enabled = !busy, modifier = Modifier.fillMaxWidth()
+                        .testTag("atrio-auth-recover").heightIn(min = 48.dp),
                         colors = if (glassForm) ButtonDefaults.textButtonColors(contentColor = formHeading)
                             else ButtonDefaults.textButtonColors()) {
                         Text("Esqueci minha senha")

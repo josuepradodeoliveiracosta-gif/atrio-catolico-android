@@ -484,6 +484,13 @@ if [[ "${ATRIO_QA_SUITE:-}" == PreAuthLegalGlassUiTest ]]; then
   done
   exit "$qa_failed"
 fi
+if [[ "${ATRIO_QA_SUITE:-}" == PreAuthGlassAccessibilityUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
+    echo "Acessibilidade pré-login exige QA Geral local" >&2; exit 2
+  }
+  run_suite PreAuthGlassAccessibilityUiTest
+  exit "$qa_failed"
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2
