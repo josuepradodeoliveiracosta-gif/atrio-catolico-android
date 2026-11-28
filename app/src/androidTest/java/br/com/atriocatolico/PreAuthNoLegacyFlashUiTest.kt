@@ -3,6 +3,9 @@ package br.com.atriocatolico
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.activity.OnBackPressedDispatcher
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.test.*
@@ -24,6 +27,8 @@ class PreAuthNoLegacyFlashUiTest {
     @get:Rule val compose = createComposeRule()
     private var rootView: android.view.View? = null
     private var keyboard: androidx.compose.ui.platform.SoftwareKeyboardController? = null
+    private var focusManager: androidx.compose.ui.focus.FocusManager? = null
+    private var backDispatcher: OnBackPressedDispatcher? = null
     private fun launch(loaders: PreAuthArtworkLoaders) {
         val app = FirebaseApp.getInstance()
         check(BuildConfig.DEBUG && BuildConfig.BUILD_TYPE == "qaGeral" &&
@@ -31,7 +36,12 @@ class PreAuthNoLegacyFlashUiTest {
         compose.setContent {
             val view = LocalView.current
             val controller = LocalSoftwareKeyboardController.current
-            SideEffect { rootView = view; keyboard = controller }
+            val focus = LocalFocusManager.current
+            val dispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+            SideEffect {
+                rootView = view; keyboard = controller
+                focusManager = focus; backDispatcher = dispatcher
+            }
             AtrioTheme {
                 CompositionLocalProvider(LocalLiturgicalDay provides
                     LiturgicalCalendarBR.day(LocalDate.parse("2026-11-29"))) {
@@ -92,7 +102,10 @@ class PreAuthNoLegacyFlashUiTest {
             compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertTextContains("transicao@qa.invalid")
             // First close the IME explicitly: a hardware Back while it is visible
             // dismisses the keyboard, not the authentication destination.
-            compose.runOnIdle { keyboard?.hide() }
+            compose.runOnIdle {
+                requireNotNull(focusManager).clearFocus(force = true)
+                keyboard?.hide()
+            }
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 compose.waitUntil(5_000) {
                     compose.runOnIdle {
@@ -101,9 +114,21 @@ class PreAuthNoLegacyFlashUiTest {
                 }
             }
             exists("atrio-preauth-form-glass")
-            // Real back navigation; welcome decoder can still be pending.
-            back()
-            awaitArt("atrio-welcome-glass")
+            // Exercise the real registered BackHandler through its dispatcher,
+            // independently of the emulator's hardware-key/IME delivery.
+            // Hardware Back remains covered by the two existing six-season
+            // navigation suites and the missing-images test.
+            compose.runOnIdle {
+                val dispatcher = requireNotNull(backDispatcher)
+                check(dispatcher.hasEnabledCallbacks()) { "No enabled auth BackHandler" }
+                dispatcher.onBackPressed()
+            }
+            try {
+                awaitArt("atrio-welcome-glass")
+            } catch (failure: AssertionError) {
+                compose.onRoot(useUnmergedTree = true).printToLog("PreAuthSlowBack")
+                throw failure
+            }
             exists("atrio-welcome-no-art")
             welcome.countDown()
             awaitArt("atrio-welcome-season-boas_vindas_vitral_advento.webp")
