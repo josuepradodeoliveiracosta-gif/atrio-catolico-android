@@ -23,6 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "60de69578ef4aab82993dc463c99f11f38d6cc44"
+          test "$(git rev-parse HEAD^{tree})" = "60fedb398cf4f99c8d6fdd0692c311a1965e5ec5"
           rm -f -- app/google-services.json
           for config in app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
             test ! -e "$config"
