@@ -89,7 +89,9 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                     Spacer(Modifier.height(artHeight * 0.325f))
                     Surface(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                        color = surface, contentColor = ink, shape = RoundedCornerShape(18.dp),
+                        color = Color(PreAuthGlassPolicy.lightSurface(p.readingSurface)),
+                        contentColor = ink, shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, Color(p.accent).copy(alpha = .28f)),
                     ) {
                         Column(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
@@ -118,7 +120,7 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("atrio-welcome-login"),
                                 interactionSource = loginInteraction,
                                 colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = if (loginPressed) Color(p.pressed) else surface,
+                                    containerColor = if (loginPressed) Color(p.pressed) else Color.Transparent,
                                     contentColor = if (loginPressed) white else accent),
                                 border = BorderStroke(if (loginFocused) 3.dp else 1.dp, accent),
                                 shape = RoundedCornerShape(14.dp),
