@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch, MagicMock
 from scripts import guardian_qa_prepare_disabled_identities as m
 
 class Fake:
@@ -68,4 +68,24 @@ class Prepare(unittest.TestCase):
         f=m.client("fake_oauth_token_for_test_only")
         with self.assertRaises(m.Stop):f("POST","https://identitytoolkit.googleapis.com/v1/projects/atrio-catolico/accounts",{})
         with self.assertRaises(m.Stop):m.NoRedirect().redirect_request()
+    def test_quota_project_pinned_on_both_services(self):
+        opener=Mock()
+        response=MagicMock()
+        response.__enter__.return_value.read.return_value=b'{}'
+        opener.open.return_value=response
+        with patch.object(m.urllib.request,"build_opener",return_value=opener):
+            f=m.client("fake_oauth_token_for_test_only")
+            f("GET",m.RULES+"releases/cloud.firestore")
+            f("POST",m.AUTH+":lookup",{"localId":["fixture_triage"]})
+        self.assertEqual(opener.open.call_count,2)
+        for call in opener.open.call_args_list:
+            req=call.args[0]
+            self.assertEqual(req.get_header("X-goog-user-project"),m.PROJECT)
+    def test_http_error_identifies_stage_without_secret(self):
+        opener=Mock()
+        opener.open.side_effect=m.urllib.error.HTTPError(m.AUTH+":lookup",403,"private",{},None)
+        with patch.object(m.urllib.request,"build_opener",return_value=opener):
+            f=m.client("fake_oauth_token_for_test_only")
+            with self.assertRaisesRegex(m.Stop,"^auth_lookup_http_403$"):
+                f("POST",m.AUTH+":lookup",{"localId":["fixture_triage"]})
 if __name__=="__main__": unittest.main()

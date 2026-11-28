@@ -59,7 +59,7 @@ def client(token):
             raise Stop("method_body_mismatch")
         req=urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
             headers={"Authorization":"Bearer "+token,"Accept":"application/json",
-                     "Content-Type":"application/json"}, method=method)
+                     "Content-Type":"application/json","X-Goog-User-Project":PROJECT}, method=method)
         try:
             with opener.open(req,timeout=30) as res:
                 raw=res.read(500001)
@@ -70,7 +70,11 @@ def client(token):
                 raise Stop("invalid_response")
             return data
         except urllib.error.HTTPError as e:
-            raise Stop("google_http_"+str(e.code)) from None
+            stage = ("rules_release" if url==RULES+"releases/cloud.firestore" else
+                     "ruleset" if url.startswith(RULES) else
+                     "auth_lookup" if url==AUTH+":lookup" else
+                     "auth_update" if url==AUTH+":update" else "auth_create")
+            raise Stop(stage+"_http_"+str(e.code)) from None
         except (OSError,ValueError):
             raise Stop("google_request_failed") from None
     return call
