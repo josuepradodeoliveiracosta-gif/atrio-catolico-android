@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {dashboardFixture as bridge,NOW,CTX,exampleRows as rows} from './qa-dashboard-bridge.mjs';
+test('projection groups reports and omits identities',()=>{const r=bridge(CTX,rows(),NOW);assert.equal(r.split('\n').length,5);assert.match(r,/caso-001\tFORUM\tPOST\tURGENT\tTHREAT\t\d+\t2\t2/);assert.doesNotMatch(r,/fixture_|dismissed/)});
+for(const [k,v] of Object.entries({active:false,authenticated:false,sessionFresh:false,role:'owner',project:'atrio-catolico',environment:'production'}))test('deny '+k,()=>assert.equal(bridge({...CTX,[k]:v},rows(),NOW),null));
+for(const [k,v] of Object.entries({reportId:'real_id',reporterUid:'real_user',targetId:'real_target',collection:'chat_reports',category:'bad',childId:'real_child'}))test('deny invalid '+k,()=>assert.equal(bridge(CTX,[{...rows()[0],[k]:v}],NOW),null));
+test('limit page',()=>assert.equal(bridge(CTX,Array(101).fill(rows()[0]),NOW),null));
+test('duplicate row does not double count',()=>assert.equal(bridge(CTX,[...rows(),rows()[0]],NOW),bridge(CTX,rows(),NOW)));
+test('conflicting duplicate denied',()=>assert.equal(bridge(CTX,[...rows(),{...rows()[0],urgency:'normal'}],NOW),null));
+test('empty page',()=>assert.equal(bridge(CTX,[],NOW),'GUARDIAN_FIXTURE_V1\n'));
+test('deterministic ordering',()=>assert.equal(bridge(CTX,rows().reverse(),NOW),bridge(CTX,rows(),NOW)));
