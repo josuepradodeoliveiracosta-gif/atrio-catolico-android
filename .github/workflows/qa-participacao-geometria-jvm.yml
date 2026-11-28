@@ -1,0 +1,79 @@
+name: QA — geometria da participação (JVM)
+on:
+  push:
+    branches: [qa/participacao-geometria-jvm]
+    paths:
+      - '.github/workflows/qa-participacao-geometria-jvm.yml'
+permissions:
+  contents: read
+jobs:
+  geometry:
+    if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/qa/participacao-geometria-jvm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ATRIO_QA_GERAL_BUILD: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: 60de69578ef4aab82993dc463c99f11f38d6cc44
+          persist-credentials: false
+      - name: Conferir fonte e isolar configuração
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "60de69578ef4aab82993dc463c99f11f38d6cc44"
+          rm -f -- app/google-services.json
+          for config in app/src/qaGeral/google-services.json app/src/chatQa/google-services.json app/src/perfilQa/google-services.json; do
+            test ! -e "$config"
+          done
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Executar somente política e geometria
+        shell: bash
+        run: |
+          set -euo pipefail
+          # O filtro de tarefa --tests entra em startParameter.taskNames.
+          # Manter a lista de tarefas permitidas intacta e aplicar o filtro
+          # pela API de Test do Gradle, em script temporário sem segredos.
+          cat > "$RUNNER_TEMP/participation-filter.gradle" <<'GROOVY'
+          gradle.beforeProject { p ->
+              p.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+                  if (name == 'testQaGeralUnitTest') {
+                      filter {
+                          includeTestsMatching 'br.com.atriocatolico.ParticipationVitralPolicyTest'
+                          failOnNoMatchingTests = true
+                      }
+                  }
+              }
+          }
+          GROOVY
+          gradle --init-script "$RUNNER_TEMP/participation-filter.gradle" :app:testQaGeralUnitTest --no-daemon
+      - name: Exigir as quatro verificações e ausência de falhas
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+          root = pathlib.Path('app/build/test-results/testQaGeralUnitTest')
+          reports = list(root.glob('TEST-*.xml'))
+          assert len(reports) == 1, reports
+          suite = ET.parse(reports[0]).getroot()
+          assert suite.get('name') == 'br.com.atriocatolico.ParticipationVitralPolicyTest'
+          assert suite.get('tests') == '4', suite.attrib
+          assert all(suite.get(k) == '0' for k in ('failures', 'errors', 'skipped')), suite.attrib
+          print('Geometria e política: 4/4 aprovadas.')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: qa-participacao-geometria-jvm
+          path: app/build/test-results/testQaGeralUnitTest/
+          retention-days: 7
+          if-no-files-found: warn
