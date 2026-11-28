@@ -13,7 +13,7 @@ import re
 
 # Preserve offsets; comments and strings are single tokens (never rewrite them).
 LEX=re.compile(r"//[^\n]*|/\*[\s\S]*?\*/|'(?:\\[\s\S]|[^'\\])*'|\"(?:\\[\s\S]|[^\"\\])*\"|[A-Za-z_$][A-Za-z0-9_$]*|\s+|.",re.S)
-HEADER=["rules_version","=","'2'",";","service","cloud",".","firestore","{","match","/","databases","{","database","}","/","documents","{"]
+HEADER=["rules_version","=","'2'",";","service","cloud",".","firestore","{","match","/","databases","/","{","database","}","/","documents","{"]
 METHODS={"read","write","get","list","create","update","delete"}
 MARKER="GUARDIAN_QA_COMPOSED_V1"
 GUARD="(request.auth == null || (!(request.auth.uid in ['fixture_triage','fixture_activation','fixture_owner']) && !('guardianQaRole' in request.auth.token))) && !request.path[3].matches('qa_guardian_.*')"
@@ -50,7 +50,7 @@ def structure(source):
                 raise ValueError("unbalanced_rules")
             _,j=stack.pop()
             pairs[j]=i
-    if stack or pairs.get(8)!=len(words)-1 or pairs.get(17)!=len(words)-2:
+    if stack or pairs.get(8)!=len(words)-1 or pairs.get(len(HEADER)-1)!=len(words)-2:
         raise ValueError("unsupported_root_structure")
     return ts,words
 
