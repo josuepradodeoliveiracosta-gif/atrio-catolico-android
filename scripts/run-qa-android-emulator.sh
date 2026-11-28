@@ -450,6 +450,20 @@ if [[ "${ATRIO_QA_SUITE:-}" == PreAuthStandardGlass ]]; then
   exit "$qa_failed"
 fi
 # Recover only navigation and the screenshots invalidated by SystemUI ANR.
+if [[ "${ATRIO_QA_SUITE:-}" == PreAuthNoLegacyFlashRetry ]]; then
+  [[ "$qa_apk" == qaGeral && "$qa_group" == all && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || exit 2
+  if ! gradle "$test_task" '-Pandroid.testInstrumentationRunnerArguments.class=br.com.atriocatolico.PreAuthNoLegacyFlashUiTest#slowImagesNeverSwitchToLegacyDuringRealNavigation' --daemon --stacktrace; then
+    qa_failed=1
+  fi
+  results="app/build/outputs/androidTest-results/connected/$qa_apk"
+  mkdir -p qa-android-suite-results/PreAuthNoLegacyFlashUiTest
+  if [[ -d "$results" ]]; then
+    cp -a "$results/." qa-android-suite-results/PreAuthNoLegacyFlashUiTest/
+  else
+    qa_failed=1
+  fi
+  exit "$qa_failed"
+fi
 if [[ "${ATRIO_QA_SUITE:-}" == PreAuthNoLegacyFlash ]]; then
   [[ "$qa_apk" == qaGeral && "$qa_group" == all && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || exit 2
   run_suite PreAuthNoLegacyFlashUiTest

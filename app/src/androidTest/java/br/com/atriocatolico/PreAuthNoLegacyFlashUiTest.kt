@@ -1,6 +1,9 @@
 package br.com.atriocatolico
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -19,11 +22,16 @@ import java.util.concurrent.atomic.AtomicInteger
  * no requests to real Firebase, no real credentials. */
 class PreAuthNoLegacyFlashUiTest {
     @get:Rule val compose = createComposeRule()
+    private var rootView: android.view.View? = null
+    private var keyboard: androidx.compose.ui.platform.SoftwareKeyboardController? = null
     private fun launch(loaders: PreAuthArtworkLoaders) {
         val app = FirebaseApp.getInstance()
         check(BuildConfig.DEBUG && BuildConfig.BUILD_TYPE == "qaGeral" &&
             app.options.projectId == "demo-atrio-v11")
         compose.setContent {
+            val view = LocalView.current
+            val controller = LocalSoftwareKeyboardController.current
+            SideEffect { rootView = view; keyboard = controller }
             AtrioTheme {
                 CompositionLocalProvider(LocalLiturgicalDay provides
                     LiturgicalCalendarBR.day(LocalDate.parse("2026-11-29"))) {
@@ -82,9 +90,21 @@ class PreAuthNoLegacyFlashUiTest {
             awaitArt("atrio-login-vitral-ADVENT")
             exists("atrio-preauth-form-glass")
             compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertTextContains("transicao@qa.invalid")
+            // First close the IME explicitly: a hardware Back while it is visible
+            // dismisses the keyboard, not the authentication destination.
+            compose.runOnIdle { keyboard?.hide() }
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                compose.waitUntil(5_000) {
+                    compose.runOnIdle {
+                        rootView?.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == false
+                    }
+                }
+            }
+            exists("atrio-preauth-form-glass")
             // Real back navigation; welcome decoder can still be pending.
             back()
-            exists("atrio-welcome-glass")
+            awaitArt("atrio-welcome-glass")
+            exists("atrio-welcome-no-art")
             welcome.countDown()
             awaitArt("atrio-welcome-season-boas_vindas_vitral_advento.webp")
             click("atrio-welcome-create")
