@@ -60,8 +60,9 @@ internal fun WelcomeVitralEntry(
 private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit, onLogin: () -> Unit) {
     val p = frame.spec
     val surface = Color(p.readingSurface)
-    val accent = Color(PreAuthGlassPolicy.lightReadingAccent(p.accent))
-    val ink = Color(p.body)
+    val accent = Color(PreAuthGlassPolicy.ENTRANCE_TITLE)
+    val outline = Color(PreAuthGlassPolicy.ENTRANCE_OUTLINE)
+    val ink = Color(PreAuthGlassPolicy.ENTRANCE_BODY)
     val white = Color(p.onPrimary)
     val createInteraction = remember { MutableInteractionSource() }
     val loginInteraction = remember { MutableInteractionSource() }
@@ -102,9 +103,10 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
                             .testTag("atrio-welcome-glass"),
                         backdrop = glassBackdrop,
-                        tint = Color(PreAuthGlassPolicy.lightSurface(p.readingSurface)),
+                        tint = Color(PreAuthGlassPolicy.darkSurface(PreAuthGlassPolicy.ENTRANCE_BASE)),
+                        localScrim = Color(PreAuthGlassPolicy.ENTRANCE_SCRIM),
                         contentColor = ink, shape = RoundedCornerShape(18.dp),
-                        border = BorderStroke(1.dp, accent.copy(alpha = .28f)),
+                        border = BorderStroke(1.dp, outline.copy(alpha = .55f)),
                     ) {
                         Column(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
@@ -125,7 +127,7 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = Color(if (createPressed) p.pressed else p.primary),
                                     contentColor = white),
-                                border = if (createFocused) BorderStroke(3.dp, white) else null,
+                                border = if (createFocused) BorderStroke(3.dp, white) else BorderStroke(1.dp, outline),
                                 shape = RoundedCornerShape(14.dp),
                             ) { Text("Criar conta", textAlign = TextAlign.Center) }
                             OutlinedButton(
@@ -135,7 +137,7 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                                 colors = ButtonDefaults.outlinedButtonColors(
                                     containerColor = if (loginPressed) Color(p.pressed) else Color.Transparent,
                                     contentColor = if (loginPressed) white else accent),
-                                border = BorderStroke(if (loginFocused) 3.dp else 1.dp, accent),
+                                border = BorderStroke(if (loginFocused) 3.dp else 1.dp, if (loginFocused) white else outline),
                                 shape = RoundedCornerShape(14.dp),
                             ) { Text("Entrar", textAlign = TextAlign.Center) }
                         }

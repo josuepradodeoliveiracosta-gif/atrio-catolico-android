@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -50,6 +51,7 @@ internal data class PreAuthGlassBackdrop(
     val baseColor: Color,
     val contentScale: ContentScale = ContentScale.Fit,
     val scrim: Color = Color.Transparent,
+    val readingRegion: ParticipationReadingRegion? = null,
 )
 
 /** Blur only the decorative replay of the artwork, never the content or the
@@ -64,6 +66,7 @@ internal fun PreAuthGlassPanel(
     border: BorderStroke,
     modifier: Modifier = Modifier,
     enableBlur: Boolean = true,
+    localScrim: Color = Color.Transparent,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -92,6 +95,11 @@ internal fun PreAuthGlassPanel(
                         .testTag("atrio-preauth-glass-blur"),
                 ) {
                     val bitmap = backdrop.bitmap
+                    drawRect(backdrop.baseColor)
+                    val region = backdrop.readingRegion
+                    if (region != null) {
+                        drawParticipationArtwork(bitmap, backdrop.viewport, region, IntOffset.Zero - backdrop.panelOrigin)
+                    } else {
                     val scale = backdrop.contentScale.computeScaleFactor(
                         Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
                         Size(backdrop.viewport.width.toFloat(), backdrop.viewport.height.toFloat()),
@@ -101,17 +109,18 @@ internal fun PreAuthGlassPanel(
                         (bitmap.height * scale.scaleY).roundToInt().coerceAtLeast(1),
                     )
                     val origin = Alignment.TopCenter.align(scaled, backdrop.viewport, layoutDirection)
-                    drawRect(backdrop.baseColor)
                     drawImage(
                         image = bitmap,
                         dstOffset = origin - backdrop.panelOrigin,
                         dstSize = scaled,
                         filterQuality = FilterQuality.Low,
                     )
+                    }
                     if (backdrop.scrim.alpha > 0f) drawRect(backdrop.scrim)
                 }
             }
             // Tint and all interactive content are on independent sharp layers.
+            if (localScrim.alpha > 0f) Box(Modifier.matchParentSize().background(localScrim))
             Box(Modifier.matchParentSize().background(tint))
             content()
         }
@@ -175,4 +184,36 @@ internal fun PreAuthFormPanel(
         border = BorderStroke(1.dp, glassBorder.copy(alpha = .55f)),
         content = content,
     )
+}
+
+/** Draw the identical three-band projection in the original participation
+ * viewport and in the clipped glass replay. No stretched decorative ends and
+ * no second bitmap; only the reading band grows when the measured content does. */
+internal fun DrawScope.drawParticipationArtwork(
+    bitmap: ImageBitmap,
+    viewport: IntSize,
+    region: ParticipationReadingRegion,
+    offset: IntOffset = IntOffset.Zero,
+) {
+    val w = viewport.width
+    val h = viewport.height
+    if (w <= 0 || h <= 0) return
+    val natural = (w * (1800f / 790f)).roundToInt()
+    val geometry = region.vertical(natural, 0, 0)
+    val sourceTop = (bitmap.height * region.start).roundToInt()
+    val sourceEnd = (bitmap.height * region.end).roundToInt()
+    val middle = h - geometry.top - geometry.bottom
+    fun band(sy: Int, sh: Int, dy: Int, dh: Int) {
+        if (sh > 0 && dh > 0) drawImage(
+            image = bitmap,
+            srcOffset = IntOffset(0, sy),
+            srcSize = IntSize(bitmap.width, sh),
+            dstOffset = offset + IntOffset(0, dy),
+            dstSize = IntSize(w, dh),
+            filterQuality = FilterQuality.Medium,
+        )
+    }
+    band(0, sourceTop, 0, geometry.top)
+    band(sourceTop, sourceEnd - sourceTop, geometry.top, middle)
+    band(sourceEnd, bitmap.height - sourceEnd, geometry.top + middle, geometry.bottom)
 }

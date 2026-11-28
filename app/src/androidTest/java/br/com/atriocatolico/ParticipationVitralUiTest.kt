@@ -8,6 +8,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
@@ -135,6 +136,7 @@ class ParticipationVitralUiTest {
                             relativeY + reading.size.height <= art.size.height - bottom + 2)
                         assertTrue("Leitura não centralizada na faixa livre",
                             kotlin.math.abs(relativeY + reading.size.height / 2f - center) <= 2f)
+                        assertDarkEntranceGlass("atrio-participation-glass")
                         captureParticipation(season.name.lowercase(java.util.Locale.ROOT) +
                             (if (night) "-escuro" else "-claro"))
                     }
@@ -274,6 +276,20 @@ class ParticipationVitralUiTest {
         }
     }
 
+    private fun assertDarkEntranceGlass(tag: String) {
+        val pixels = compose.onNodeWithTag(tag, useUnmergedTree = true).captureToImage().toPixelMap()
+        var dark = 0
+        var total = 0
+        for (x in pixels.width/10 until pixels.width*9/10 step 8) {
+            for (y in pixels.height/10 until pixels.height*9/10 step 8) {
+                val c = pixels[x,y]
+                if (c.red < .55f && c.green < .55f && c.blue < .55f) dark++
+                total++
+            }
+        }
+        assertTrue("Painel não pode voltar a parecer branco: $dark/$total", total > 0 && dark.toDouble()/total >= .60)
+    }
+
     private fun captureParticipation(name: String) {
         if (android.os.Build.VERSION.SDK_INT < 31) return
         require(name.matches(Regex("[a-z0-9-]+")))
@@ -301,6 +317,7 @@ class ParticipationVitralUiTest {
         }
         for (label in labels) compose.onNodeWithText(label).assertIsEnabled()
         compose.onNodeWithTag(tag(Season.ADVENT)).assertDoesNotExist()
+        compose.onNodeWithTag("atrio-participation-glass", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithContentDescription("Voltar").performClick()
         compose.runOnIdle { assertEquals(1, backs) }
     }

@@ -19,7 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -85,9 +85,12 @@ internal fun ParticipationVitralEntry(
             season, buildType, loader,
         )
         val palette = frame?.spec
-        val title = palette?.let { Color(it.title) } ?: defaultTitle
-        val outline = palette?.let { Color(it.secondaryOutline) } ?: defaultOutline
         val region = frame?.let { ParticipationVitralPolicy.readingRegion(season) }
+        val glass = frame != null && region != null
+        val title = if (glass) Color(PreAuthGlassPolicy.ENTRANCE_TITLE) else defaultTitle
+        val outline = if (glass) Color(PreAuthGlassPolicy.ENTRANCE_OUTLINE) else defaultOutline
+        var artPlacement by remember(frame, region) { mutableStateOf<PreAuthFormPlacement?>(null) }
+        var glassPlacement by remember(frame, region) { mutableStateOf<PreAuthFormPlacement?>(null) }
         Column(
             Modifier.fillMaxSize().background(defaultBackground).verticalScroll(scroll)
                 .testTag("atrio-participation-scroll"),
@@ -99,34 +102,16 @@ internal fun ParticipationVitralEntry(
                     if (frame != null && region != null) {
                         // Decorative image: no spoken description or touch interception.
                         Canvas(Modifier.testTag("atrio-participation-season-" +
-                            frame.spec.assetName.substringAfterLast('/'))) {
-                            val w = size.width.roundToInt()
-                            val h = size.height.roundToInt()
-                            val natural = (w * ratio).roundToInt()
-                            val geometry = region.vertical(natural, 0, 0)
-                            val source = frame.bitmap
-                            val sourceTop = (source.height * region.start).roundToInt()
-                            val sourceEnd = (source.height * region.end).roundToInt()
-                            val middle = h - geometry.top - geometry.bottom
-                            fun band(sy: Int, sh: Int, dy: Int, dh: Int) {
-                                if (sh > 0 && dh > 0) drawImage(
-                                    image = source,
-                                    srcOffset = IntOffset(0, sy),
-                                    srcSize = IntSize(source.width, sh),
-                                    dstOffset = IntOffset(0, dy),
-                                    dstSize = IntSize(w, dh),
-                                    filterQuality = FilterQuality.Medium,
-                                )
-                            }
-                            band(0, sourceTop, 0, geometry.top)
-                            band(sourceTop, sourceEnd - sourceTop, geometry.top, middle)
-                            band(sourceEnd, source.height - sourceEnd,
-                                geometry.top + middle, geometry.bottom)
+                            frame.spec.assetName.substringAfterLast('/'))
+                            .onGloballyPositioned { artPlacement = PreAuthFormPlacement.from(it) }) {
+                            drawParticipationArtwork(frame.bitmap,
+                                IntSize(size.width.roundToInt(), size.height.roundToInt()), region)
                         }
                     }
-                    // No solid card over the verified light reading band.
+                    val controls: @Composable () -> Unit = {
                     Column(
-                        Modifier.fillMaxWidth().testTag("atrio-participation-reading"),
+                        Modifier.fillMaxWidth().padding(if (glass) 8.dp else 0.dp)
+                            .then(if (glass) Modifier.testTag("atrio-participation-glass") else Modifier),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(if (region == null) 12.dp else 8.dp),
                     ) {
@@ -155,10 +140,33 @@ internal fun ParticipationVitralEntry(
                                 .testTag("atrio-participation-choice-$index"),
                             interactionSource = interaction,
                             colors = ButtonDefaults.buttonColors(containerColor = button, contentColor = ink),
-                            border = if (palette != null && focused) BorderStroke(3.dp, Color(palette.innerFocus)) else null,
+                            border = if (palette != null && focused) BorderStroke(3.dp, Color(palette.innerFocus))
+                                else if (glass) BorderStroke(1.dp, outline) else null,
                             shape = RoundedCornerShape(14.dp),
                         ) { Text(label, textAlign = TextAlign.Center) }
                     }
+                    }
+                    }
+                    if (frame != null && region != null) {
+                        val art = artPlacement
+                        val placement = glassPlacement
+                        val backdrop = if (art != null && placement != null) PreAuthGlassBackdrop(
+                            frame.bitmap, art.size, placement.origin - art.origin,
+                            defaultBackground, readingRegion = region,
+                        ) else null
+                        PreAuthGlassPanel(
+                            backdrop = backdrop,
+                            modifier = Modifier.fillMaxWidth().testTag("atrio-participation-reading")
+                                .onGloballyPositioned { glassPlacement = PreAuthFormPlacement.from(it) },
+                            tint = Color(PreAuthGlassPolicy.darkSurface(PreAuthGlassPolicy.ENTRANCE_BASE)),
+                            localScrim = Color(PreAuthGlassPolicy.ENTRANCE_SCRIM),
+                            contentColor = Color(PreAuthGlassPolicy.ENTRANCE_BODY),
+                            shape = RoundedCornerShape(18.dp),
+                            border = BorderStroke(1.dp, outline.copy(alpha = .55f)),
+                            content = controls,
+                        )
+                    } else {
+                        Box(Modifier.testTag("atrio-participation-reading")) { controls() }
                     }
                 },
             ) { measurables, constraints ->

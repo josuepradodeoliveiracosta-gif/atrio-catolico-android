@@ -271,6 +271,7 @@ class WelcomeVitralUiTest {
             compose.onNodeWithTag("atrio-welcome-vitral", useUnmergedTree = true).assertIsDisplayed()
             captureWelcome(label + "-arte")
             compose.onNodeWithTag("atrio-welcome-login").performScrollTo().assertIsDisplayed()
+            assertDarkEntranceGlass("atrio-welcome-glass")
             captureWelcome(label + "-acoes")
             compose.onNodeWithTag("atrio-welcome-login").performClick()
             compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertIsDisplayed()
@@ -387,6 +388,20 @@ class WelcomeVitralUiTest {
             val spec = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season))
             sample(season.name) { requireNotNull(decodeWelcomeVitral(context, spec, 1080, 2461)).asAndroidBitmap() }
         }
+    }
+
+    private fun assertDarkEntranceGlass(tag: String) {
+        val pixels = compose.onNodeWithTag(tag, useUnmergedTree = true).captureToImage().toPixelMap()
+        var dark = 0
+        var total = 0
+        for (x in pixels.width/10 until pixels.width*9/10 step 8) {
+            for (y in pixels.height/10 until pixels.height*9/10 step 8) {
+                val c = pixels[x,y]
+                if (c.red < .55f && c.green < .55f && c.blue < .55f) dark++
+                total++
+            }
+        }
+        assertTrue("Painel não pode voltar a parecer branco: $dark/$total", total > 0 && dark.toDouble()/total >= .60)
     }
 
     private fun captureWelcome(name: String) {

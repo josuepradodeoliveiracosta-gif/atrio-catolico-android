@@ -24,6 +24,26 @@ class PreAuthGlassPolicyTest {
         return .2126*linear(16)+.7152*linear(8)+.0722*linear(0)
     }
     private fun contrast(a: Long,b: Long) = (maxOf(lum(a),lum(b))+.05)/(minOf(lum(a),lum(b))+.05)
+    @Test fun entranceDarkGlassKeepsSixLiturgicalButtonsAndTextReadableOverAnyArt() {
+        val tint = PreAuthGlassPolicy.darkSurface(PreAuthGlassPolicy.ENTRANCE_BASE)
+        assertEquals(153L, tint shr 24)
+        assertEquals(89L, PreAuthGlassPolicy.ENTRANCE_SCRIM shr 24)
+        val seasons = listOf(Season.ADVENT, Season.CHRISTMAS, Season.ORDINARY,
+            Season.LENT, Season.TRIDUUM, Season.EASTER)
+        for (season in seasons) {
+            val p = requireNotNull(WelcomeVitralPolicy.resolve("qaGeral", season))
+            for (behind in listOf(0xFF000000L, 0xFFFFFFFFL, 0xFF234538L)) {
+                val surface = blend(tint, blend(PreAuthGlassPolicy.ENTRANCE_SCRIM, behind))
+                assertTrue(contrast(PreAuthGlassPolicy.ENTRANCE_TITLE,surface) >= 4.5)
+                assertTrue(contrast(PreAuthGlassPolicy.ENTRANCE_BODY,surface) >= 4.5)
+                assertTrue(contrast(PreAuthGlassPolicy.ENTRANCE_OUTLINE,surface) >= 3.0)
+                assertTrue(contrast(PreAuthGlassPolicy.ENTRANCE_OUTLINE,p.primary) >= 3.0)
+                assertTrue(contrast(PreAuthGlassPolicy.ENTRANCE_OUTLINE,p.pressed) >= 3.0)
+                assertTrue(contrast(p.onPrimary,p.primary) >= 4.5)
+                assertTrue(contrast(p.onPrimary,p.pressed) >= 4.5)
+            }
+        }
+    }
     @Test fun blurBudgetRejectsLargeLayersAndLowRam() {
         assertTrue(PreAuthGlassPolicy.withinBlurBudget(1000, 2500, false))
         assertFalse(PreAuthGlassPolicy.withinBlurBudget(1000, 2501, false))

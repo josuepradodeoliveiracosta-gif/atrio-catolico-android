@@ -8,6 +8,12 @@ package br.com.atriocatolico
 internal object PreAuthGlassPolicy {
     const val LIGHT_ALPHA: Int = 166 // 65% tint, 35% artwork
     const val DARK_ALPHA: Int = 153 // 60%
+    // Only inside entrance panels: preserve all ornament pixels outside.
+    const val ENTRANCE_SCRIM: Long = 0x59000000L // 35% black
+    const val ENTRANCE_BASE: Long = 0xFF211922L
+    const val ENTRANCE_TITLE: Long = 0xFFFFE4AAL
+    const val ENTRANCE_BODY: Long = 0xFFFFF5E6L
+    const val ENTRANCE_OUTLINE: Long = 0xFFD9B97BL
     const val BLUR_RADIUS_DP: Int = 12
     // Bound the optional GPU layer even for scrollable forms and 200% fonts.
     const val MAX_BLUR_PIXELS: Long = 2_500_000L
