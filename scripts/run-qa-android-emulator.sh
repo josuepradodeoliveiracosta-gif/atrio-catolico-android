@@ -450,6 +450,28 @@ if [[ "${ATRIO_QA_SUITE:-}" == PreAuthStandardGlass ]]; then
   exit "$qa_failed"
 fi
 # Recover only navigation and the screenshots invalidated by SystemUI ANR.
+if [[ "${ATRIO_QA_SUITE:-}" == PreAuthNoLegacyFlash ]]; then
+  [[ "$qa_apk" == qaGeral && "$qa_group" == all && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || exit 2
+  run_suite PreAuthNoLegacyFlashUiTest
+  run_suite WelcomeVitralUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+  run_suite ParticipationVitralUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+  run_suite LoginLiturgicalBackdropUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+  for kind in welcome participation login registration; do
+    mkdir -p "qa-android-suite-results/$kind-preview"
+    if ! adb pull "/data/local/tmp/atrio-$kind-preview/." "qa-android-suite-results/$kind-preview/"; then
+      qa_failed=1
+    fi
+    case "$kind" in
+      welcome) expected=18 ;;
+      participation) expected=12 ;;
+      *) expected=1 ;;
+    esac
+    if [[ "$(find "qa-android-suite-results/$kind-preview" -maxdepth 1 -name '*.png' | wc -l)" -lt "$expected" ]]; then
+      qa_failed=1
+    fi
+  done
+  exit "$qa_failed"
+fi
 if [[ "${ATRIO_QA_SUITE:-}" == PreAuthEntranceVisualRetry ]]; then
   [[ "$qa_apk" == qaGeral && "$qa_group" == all && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || exit 2
   run_entrance_methods() {

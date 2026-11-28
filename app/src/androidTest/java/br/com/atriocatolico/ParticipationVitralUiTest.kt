@@ -312,7 +312,7 @@ class ParticipationVitralUiTest {
         } finally { bitmap.recycle() }
     }
 
-    @Test fun missingResourceKeepsAllActionsAndReturn() {
+    @Test fun missingResourceKeepsGlassAllActionsAndReturn() {
         var backs = 0
         compose.setContent {
             ParticipationVitralEntry({}, { backs++ }, Season.ADVENT, "qaGeral",
@@ -320,8 +320,9 @@ class ParticipationVitralUiTest {
         }
         for (label in labels) compose.onNodeWithText(label).assertIsEnabled()
         compose.onNodeWithTag(tag(Season.ADVENT)).assertDoesNotExist()
-        compose.onNodeWithTag("atrio-participation-glass", useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithContentDescription("Voltar").performClick()
+        compose.onNodeWithTag("atrio-participation-glass", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("atrio-participation-no-art", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Voltar").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, backs) }
     }
 

@@ -210,7 +210,7 @@ class WelcomeVitralUiTest {
         compose.runOnIdle { assertEquals(2, loads.get()) }
     }
 
-    @Test fun missingAssetKeepsDefaultActions() {
+    @Test fun missingAssetKeepsGlassAndActions() {
         var creates = 0
         compose.setContent {
             WelcomeVitralEntry({ creates++ }, {}, season = Season.ADVENT, buildType = "qaGeral",
@@ -219,7 +219,8 @@ class WelcomeVitralUiTest {
         compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
         compose.onNodeWithTag("atrio-welcome-login").assertExists()
         compose.onNodeWithTag("atrio-welcome-season-boas_vindas_vitral_advento.webp").assertDoesNotExist()
-        compose.onNodeWithTag("atrio-welcome-glass", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("atrio-welcome-glass", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("atrio-welcome-no-art", useUnmergedTree = true).assertExists()
         compose.runOnIdle { assertEquals(1, creates) }
     }
 

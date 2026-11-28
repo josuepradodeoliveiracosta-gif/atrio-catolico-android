@@ -103,6 +103,15 @@ class AndroidGroupTests(unittest.TestCase):
         self.assertIn("atrio-registration-preview", block)
         self.assertIn('exit "$qa_failed"', block)
 
+    def test_no_legacy_flash_only_runs_affected_pre_auth_suites(self):
+        source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
+        start = 'if [[ "${ATRIO_QA_SUITE:-}" == PreAuthNoLegacyFlash ]]; then'
+        block = source.split(start, 1)[1].split("\nfi", 1)[0]
+        self.assertEqual(re.findall(r"(?m)^  run_suite (\w+)", block),
+            ["PreAuthNoLegacyFlashUiTest", "WelcomeVitralUiTest",
+             "ParticipationVitralUiTest", "LoginLiturgicalBackdropUiTest"])
+        self.assertIn('exit "$qa_failed"', block)
+
     def test_standard_glass_only_runs_three_affected_suites(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
         start = 'if [[ "${ATRIO_QA_SUITE:-}" == PreAuthStandardGlass ]]; then'
