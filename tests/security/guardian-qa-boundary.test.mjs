@@ -7,7 +7,7 @@ import {setQaPolicy,proposeQaCase} from './guardian-qa-boundary.mjs';
 const PROJECT='demo-atrio-guardian-boundary',HOST='127.0.0.1:8089';
 assert.equal(process.env.FIRESTORE_EMULATOR_HOST,HOST);
 for(const k of ['GOOGLE_APPLICATION_CREDENTIALS','GUARDIAN_FIREBASE_SERVICE_ACCOUNT_JSON','GUARDIAN_V2_ENABLED'])assert.ok(!process.env[k]);
-const env=await initializeTestEnvironment({projectId:PROJECT,firestore:{host:'127.0.0.1',port:8089,rules:readFileSync(new URL('./guardian-qa-boundary.rules',import.meta.url),'utf8')}});
+const env=await initializeTestEnvironment({projectId:PROJECT,firestore:{host:'127.0.0.1',port:8089,rules:readFileSync(process.env.GUARDIAN_QA_BOUNDARY_RULES_PATH || new URL('./guardian-qa-boundary.rules',import.meta.url),'utf8')}});
 const triage=env.authenticatedContext('fixture_triage',{guardianQaRole:'triage'}).firestore();
 const activation=env.authenticatedContext('fixture_activation',{guardianQaRole:'activation'}).firestore();
 const owner=env.authenticatedContext('fixture_owner').firestore();
