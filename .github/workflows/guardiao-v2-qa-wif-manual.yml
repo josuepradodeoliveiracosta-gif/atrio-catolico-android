@@ -1,19 +1,74 @@
-name: Guardian QA - regras publicadas somente leitura
+name: Guardião V2 — identidade QA manual (leitura única)
 on:
   workflow_dispatch:
     inputs:
       confirm_qa:
-        description: Confirmo leitura das Rules QA V2 e regressao local sem deploy
-        required: true
+        description: Confirmo leitura QA autorizada, sem escrita nem deploy
         type: boolean
+        required: true
         default: false
 permissions:
   contents: read
-concurrency:
-  group: guardian-qa-remote-rules-read
-  cancel-in-progress: false
 jobs:
+  qa-wif-one-get:
+    if: github.ref != 'refs/heads/qa/guardian-validation-no-apk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    environment: guardian-qa
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      QA_FIREBASE_PROJECT_ID: ${{ vars.GUARDIAN_QA_FIREBASE_PROJECT_ID }}
+      QA_APPROVED_PROJECT_ID: ${{ vars.GUARDIAN_QA_APPROVED_PROJECT_ID }}
+      QA_WIF_PROVIDER: ${{ vars.GUARDIAN_QA_WIF_PROVIDER }}
+      QA_SERVICE_ACCOUNT: ${{ vars.GUARDIAN_QA_SERVICE_ACCOUNT }}
+      GUARDIAN_V2_TEST_MODE: 'true'
+      GUARDIAN_V2_ENABLED: 'false'
+      GUARDIAN_V2_HOLD_ENABLED: 'false'
+      GUARDIAN_V2_QA_FIRESTORE_BRIDGE: 'false'
+      GUARDIAN_V2_QA_SHADOW_READS: 'false'
+    steps:
+      - name: Exigir confirmação e branch QA antes de solicitar OIDC
+        shell: bash
+        env:
+          CONFIRM_QA: ${{ inputs.confirm_qa }}
+        run: |
+          set -euo pipefail
+          test "$CONFIRM_QA" = 'true'
+          test "$GITHUB_REPOSITORY" = 'josuepradodeoliveiracosta-gif/atrio-catolico-android'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_REF" = 'refs/heads/feature/guardiao-v2-wif-prova-qa-20261030'
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Bloquear contexto indevido antes da credencial WIF
+        run: node --input-type=module -e "import {validateQaWifContext} from './cloudflare/guardian-worker/src/qa-wif-probe.js';validateQaWifContext(process.env)"
+      - name: Emitir OAuth temporário somente em QA por WIF
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.QA_FIREBASE_PROJECT_ID }}
+          workload_identity_provider: ${{ env.QA_WIF_PROVIDER }}
+          service_account: ${{ env.QA_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 300s
+          access_token_scopes: https://www.googleapis.com/auth/datastore
+          create_credentials_file: false
+      # Próxima prova usa a mesma identidade WIF, mas classifica localmente.
+      # Um único GET QA: substitui a sonda, não acrescenta outra consulta.
+      - name: Um único GET da fixture QA e classificação somente leitura
+        env:
+          QA_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+        run: node cloudflare/guardian-worker/src/qa-keyless-cycle.js
   remote-qa-rules:
+    if: github.ref == 'refs/heads/qa/guardian-validation-no-apk'
+    concurrency:
+      group: guardian-qa-remote-rules-read
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
