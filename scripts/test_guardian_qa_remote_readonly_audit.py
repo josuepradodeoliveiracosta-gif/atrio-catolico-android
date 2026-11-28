@@ -16,7 +16,8 @@ def baseline():
         "ancestors":[{"type":"project","id":a.NUMBER}],
         "environment":{"name":a.ENV,"deployment_branch_policy":{"custom_branch_policies":True,"protected_branches":False}},
         "branches":{"total_count":1,"branch_policies":[{"type":"branch","name":a.BRANCH}]},
-        "variables":{"total_count":4,"variables":[{"name":k,"value":v} for k,v in a.EXPECTED_VARS.items()]},
+        "variables":{"total_count":0,"variables":[]},
+        "repository_variables":{"total_count":4,"variables":[{"name":k,"value":v} for k,v in a.EXPECTED_VARS.items()]},
     }
 
 class Audit(unittest.TestCase):
@@ -57,13 +58,34 @@ class Audit(unittest.TestCase):
         d=baseline();d["branches"]["branch_policies"][0]["name"]="main"
         self.assertEqual(a.evaluate(d)["branches_qa_exatas"],"REVISAR")
     def test_variable_wrong_project(self):
-        d=baseline();d["variables"]["variables"][0]["value"]="atrio-catolico"
+        d=baseline();d["repository_variables"]["variables"][0]["value"]="atrio-catolico"
         self.assertEqual(a.evaluate(d)["variaveis_qa_exatas"],"REVISAR")
     def test_truncated_variables(self):
         d=baseline();d["variables"]["total_count"]=5
+        self.assertEqual(a.evaluate(d)["variaveis_qa_exatas"],"INCONCLUSIVO")
+    def test_ancestor_project_id(self):
+        d=baseline();d["ancestors"][0]["id"]=a.PROJECT
+        self.assertEqual(a.evaluate(d)["sem_ancestral_pasta_org"],"OK")
+    def test_ancestor_other_id(self):
+        d=baseline();d["ancestors"][0]["id"]="other-project"
+        self.assertEqual(a.evaluate(d)["sem_ancestral_pasta_org"],"REVISAR")
+    def test_ancestor_requires_verified_project(self):
+        d=baseline();d["project"]["projectId"]="other-project"
+        self.assertEqual(a.evaluate(d)["sem_ancestral_pasta_org"],"REVISAR")
+    def test_environment_override_conflict(self):
+        d=baseline();d["variables"]={"total_count":1,"variables":[{"name":"GUARDIAN_QA_FIREBASE_PROJECT_ID","value":"atrio-catolico"}]}
         self.assertEqual(a.evaluate(d)["variaveis_qa_exatas"],"REVISAR")
+    def test_environment_matching_override(self):
+        d=baseline();d["variables"]={"total_count":1,"variables":[{"name":"GUARDIAN_QA_FIREBASE_PROJECT_ID","value":a.PROJECT}]}
+        self.assertEqual(a.evaluate(d)["variaveis_qa_exatas"],"OK")
+    def test_missing_repo_scope(self):
+        d=baseline();del d["repository_variables"]
+        self.assertEqual(a.evaluate(d)["variaveis_qa_exatas"],"INCONCLUSIVO")
+    def test_incomplete_repo_scope(self):
+        d=baseline();d["repository_variables"]["total_count"]=5
+        self.assertEqual(a.evaluate(d)["variaveis_qa_exatas"],"INCONCLUSIVO")
     def test_commands_read_only(self):
-        q=Mock(side_effect=[baseline()["project"]]+[None]*12)
+        q=Mock(side_effect=[baseline()["project"]]+[None]*13)
         a.collect(q)
         for call in q.call_args_list:
             args=call.args[0]
