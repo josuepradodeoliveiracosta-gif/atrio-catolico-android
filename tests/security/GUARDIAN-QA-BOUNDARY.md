@@ -1,0 +1,7 @@
+# Barreira de autorização QA — Firestore Rules e transações
+
+Configuração exclusiva do projeto fictício demo-atrio-guardian-boundary. NÃO usar firebase deploy nem substituir firestore.rules de produção/QA Geral. Não há novos serviços, credenciais ou custos de provedor. Execute no emulador existente a partir de tests/security: ./node_modules/.bin/firebase emulators:exec --config firebase.guardian-qa-boundary.json --only firestore --project demo-atrio-guardian-boundary "node guardian-qa-boundary.test.mjs".
+
+As duas identidades Firebase distintas são verificadas por UID, claim de papel e documento de autorização revogável. A ativação só altera enabled; a triagem só propõe revisão em fontes sintéticas. O SDK cliente usa as Rules, sem Admin SDK, e grava caso, auditoria, aviso e incremento de contador na mesma transação. O limite é de 12 casos por instalação de teste, sem reset pelo cliente; não é a cota total do Firebase. Propostas são pistas, não punições. Regras restringem forma, origem, revisão e atomicidade; não conseguem provar por si só a classificação semântica do conteúdo, que requer revisão humana. As identidades são fixtures do emulador; não há provisionamento real nem atestado WIF. A autoridade IAM existente continua NO-GO. Nenhum deploy autorizado.
+
+12 cenários planejados no emulador; execução pendente no Debian. Nenhuma alteração de regras atuais, workflows ou configuração de produção. Não contabilizar cenários planejados como aprovados.
