@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Dedicated demo configuration only. Do not deploy this replacement ruleset.
+    function fixture(id) { return id is string && id.matches('fixture_[A-Za-z0-9_-]{1,64}'); }
+    function role(expected) {
+      return request.auth != null && fixture(request.auth.uid)
+        && request.auth.uid == (expected == 'triage' ? 'fixture_triage' : 'fixture_activation')
+        && request.auth.token.guardianQaRole == expected
+        && get(/databases/$(database)/documents/qa_guardian_principals/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/qa_guardian_principals/$(request.auth.uid)).data.role == expected;
+    }
+    function policyPath() { return /databases/$(database)/documents/qa_guardian_control/policy; }
+    function budgetPath() { return /databases/$(database)/documents/qa_guardian_control/budget; }
+    function casePath(id) { return /databases/$(database)/documents/qa_guardian_cases/$(id); }
+    function policyOpen() {
+      let p = get(policyPath()).data;
+      return p.enabled == true && p.approved == true && p.emergencyStop == false && p.allowHold == false;
+    }
+    function validAudit(d,id) {
+      return d.keys().hasAll(['caseId','event','actor','at'])
+        && d.keys().hasOnly(['caseId','event','actor','at'])
+        && d.caseId == id && d.event == 'review_requested'
+        && d.actor == request.auth.uid && d.at == request.time;
+    }
+    function validNotice(d,id,owner) {
+      return d.keys().hasAll(['caseId','recipient','event','at'])
+        && d.keys().hasOnly(['caseId','recipient','event','at'])
+        && d.caseId == id && d.recipient == owner
+        && d.event == 'review_requested' && d.at == request.time;
+    }
+    function validCase(id,d) {
+      let source = get(/databases/$(database)/documents/qa_guardian_sources/$(id)).data;
+      let before = get(budgetPath()).data;
+      let after = getAfter(budgetPath()).data;
+      return fixture(id) && policyOpen()
+        && d.keys().hasAll(['sourceId','sourceRevision','ownerUid','status','createdAt'])
+        && d.keys().hasOnly(['sourceId','sourceRevision','ownerUid','status','createdAt'])
+        && d.sourceId == id && source.qaFixture == true && source.revision is int
+        && source.revision >= 0 && d.sourceRevision == source.revision
+        && fixture(source.ownerUid) && d.ownerUid == source.ownerUid
+        && d.ownerUid != request.auth.uid && d.status == 'review' && d.createdAt == request.time
+        && before.used is int && before.used >= 0 && before.used < 12
+        && after.used == before.used + 1 && after.lastCase == id && after.updatedAt == request.time
+        && validAudit(getAfter(/databases/$(database)/documents/qa_guardian_audit/$(id)).data,id)
+        && validNotice(getAfter(/databases/$(database)/documents/qa_guardian_notices/$(id)).data,id,d.ownerUid);
+    }
+    match /qa_guardian_control/policy {
+      allow get: if role('triage') || role('activation');
+      allow update: if role('activation')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enabled'])
+        && request.resource.data.enabled is bool
+        && request.resource.data.enabled != resource.data.enabled
+        && (request.resource.data.enabled == false ||
+            (resource.data.approved == true && resource.data.emergencyStop == false && resource.data.allowHold == false));
+    }
+    match /qa_guardian_control/budget {
+      allow get: if role('triage');
+      allow update: if role('triage')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used','lastCase','updatedAt'])
+        && resource.data.used is int && resource.data.used >= 0 && resource.data.used < 12
+        && request.resource.data.used is int && request.resource.data.used == resource.data.used + 1
+        && fixture(request.resource.data.lastCase)
+        && request.resource.data.updatedAt == request.time
+        && !exists(casePath(request.resource.data.lastCase))
+        && getAfter(casePath(request.resource.data.lastCase)).data.createdAt == request.time;
+    }
+    match /qa_guardian_sources/{id} {
+      allow get: if role('triage') && fixture(id) && resource.data.qaFixture == true;
+    }
+    match /qa_guardian_cases/{id} {
+      allow get: if role('triage') && fixture(id);
+      allow create: if role('triage') && validCase(id,request.resource.data);
+    }
+    match /qa_guardian_audit/{id} {
+      allow create: if role('triage') && fixture(id) && !exists(casePath(id))
+        && getAfter(casePath(id)).data.createdAt == request.time
+        && validAudit(request.resource.data,id);
+    }
+    match /qa_guardian_notices/{id} {
+      allow create: if role('triage') && fixture(id) && !exists(casePath(id))
+        && getAfter(casePath(id)).data.createdAt == request.time
+        && validNotice(request.resource.data,id,getAfter(casePath(id)).data.ownerUid);
+      allow get: if request.auth != null && fixture(request.auth.uid)
+        && resource.data.recipient == request.auth.uid;
+    }
+    // All other paths, lists, deletes, principal provisioning and arbitrary writes denied.
+    match /{document=**} { allow read, write: if false; }
+  }
+}

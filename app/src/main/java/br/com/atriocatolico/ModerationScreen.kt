@@ -68,6 +68,8 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
     val photoScope = rememberCoroutineScope()
     val observedUid = rememberGuardianAuthUid()
     val sessionActive = GuardianUiPolicy.sameSession(uid, observedUid)
+    val guardianPagePilot = BuildConfig.ATRIO_QA_GERAL_CELULAR_PILOT && !BuildConfig.ATRIO_QA_GERAL_REMOTE
+    var reportsFresh by remember(db, uid, observedUid, limit, retry) { mutableStateOf(false) }
     var adminApproved by remember(uid) { mutableStateOf(false) }
     var adminChecking by remember(uid) { mutableStateOf(true) }
 
@@ -94,6 +96,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                         adminApproved = permitted
                         adminChecking = failure == null && !fresh
                         if (!permitted) {
+                            reportsFresh = false
                             reports = emptyList()
                             selectedId = null
                             photoConfirm = false
@@ -110,6 +113,7 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
     // Firebase Security Rules still authorize all backend operations.
     if (!sessionActive || !adminApproved) {
         LaunchedEffect(uid, observedUid, adminApproved) {
+            reportsFresh = false
             reports = emptyList()
             selectedId = null
             photoTarget = ""
@@ -130,13 +134,19 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
     }
 
     BackHandler { if (selectedId != null) selectedId = null else onBack() }
-    DisposableEffect(db, uid, limit, retry) {
+    DisposableEffect(db, uid, observedUid, limit, retry) {
         var active = true
+        reportsFresh = false
         loading = true
         loadError = false
         val registration = db.collection("reports").orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(limit.toLong() + 1).addSnapshotListener { snapshot, failure ->
+            .limit(limit.toLong() + 1).addSnapshotListener(
+                if (guardianPagePilot) MetadataChanges.INCLUDE else MetadataChanges.EXCLUDE
+            ) { snapshot, failure ->
                 if (active) {
+                    reportsFresh = guardianPagePilot && failure == null && snapshot != null &&
+                        !snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites() &&
+                        GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid)
                     loading = false
                     loadError = failure != null
                     if (failure != null || !GuardianUiPolicy.sameSession(
@@ -179,6 +189,16 @@ internal fun ModerationScreen(db: FirebaseFirestore, uid: String, onBack: () -> 
                     FilterChip(!showReviewed, { showReviewed = false }, label = { Text("Pendentes") })
                     FilterChip(showReviewed, { showReviewed = true }, label = { Text("Analisadas") })
                 }
+            }
+            // Integração QA local: apenas indicadores da página já lida, sem novas consultas.
+            if (guardianPagePilot && !loading && !loadError && reportsFresh && adminApproved && sessionActive) item {
+                GuardianReportPagePanel(
+                    rows = reports.take(101).map { GuardianPageRow(it.id, it.postId, it.replyId, it.status, it.fromGuardiao) },
+                    sessionActive = GuardianUiPolicy.sameSession(uid, FirebaseAuth.getInstance().currentUser?.uid),
+                    adminApproved = adminApproved,
+                    serverFresh = reportsFresh,
+                    hasMore = hasMore || reports.size > 100
+                )
             }
             if (!loading && !loadError) item { GuardianCaseOverview(db, uid) }
             // Denúncias privadas nunca entram na listagem de posts ou nas coleções globais.

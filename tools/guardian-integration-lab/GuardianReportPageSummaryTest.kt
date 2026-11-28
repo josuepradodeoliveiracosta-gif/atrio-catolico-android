@@ -1,0 +1,30 @@
+package br.com.atriocatolico
+fun main() {
+    val a = GuardianPageRow("r1", "p1", null, "pending", false)
+    val b = a.copy(id="r2", fromGuardian=true)
+    val c = a.copy(id="r3", replyId="x")
+    val d = a.copy(id="r4", status="dismissed")
+    val rows = listOf(a,b,c,d)
+    var passed=0
+    fun checkCase(name:String, result:Boolean) { check(result) { name }; passed++; println("PASS: $name") }
+    fun run(r:List<GuardianPageRow> = rows, active:Boolean=true, admin:Boolean=true, fresh:Boolean=true, more:Boolean=false, kind:GuardianPageKind=GuardianPageKind.ALL, origin:GuardianPageOrigin=GuardianPageOrigin.ALL) = GuardianReportPageSummary.evaluate(r,active,admin,fresh,more,kind,origin)
+    checkCase("counts and grouping",run()==GuardianPageSummary(4,3,1,2,3,false))
+    checkCase("session",run(active=false)==null)
+    checkCase("admin",run(admin=false)==null)
+    checkCase("cache",run(fresh=false)==null)
+    checkCase("post",run(kind=GuardianPageKind.POST)?.matching==2)
+    checkCase("reply",run(kind=GuardianPageKind.REPLY)?.matching==1)
+    checkCase("guard",run(origin=GuardianPageOrigin.GUARDIAN)?.matching==1)
+    checkCase("community",run(origin=GuardianPageOrigin.COMMUNITY)?.matching==2)
+    checkCase("combined",run(kind=GuardianPageKind.REPLY,origin=GuardianPageOrigin.GUARDIAN)?.matching==0)
+    checkCase("duplicate",run(listOf(a,a))==null)
+    checkCase("invalid status",run(listOf(a.copy(status="held")))==null)
+    checkCase("invalid id",run(listOf(a.copy(id="/")))==null)
+    checkCase("invalid post",run(listOf(a.copy(postId="/")))==null)
+    checkCase("invalid reply",run(listOf(a.copy(replyId="")))==null)
+    checkCase("empty",run(emptyList())==GuardianPageSummary(0,0,0,0,0,false))
+    checkCase("partial",run(more=true)?.truncated==true)
+    checkCase("bounded",run((1..101).map { a.copy(id="r$it") })==GuardianPageSummary(100,100,0,1,100,true))
+    checkCase("no volume priority",run((1..100).map { a.copy(id="r$it") })?.pendingTargets==1)
+    println("QA SUMMARY: $passed/$passed passed")
+}
