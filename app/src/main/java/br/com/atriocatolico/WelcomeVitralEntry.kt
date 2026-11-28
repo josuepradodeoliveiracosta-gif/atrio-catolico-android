@@ -25,6 +25,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import br.com.atriocatolico.LiturgicalCalendarBR.Season
 
 @Composable
@@ -87,9 +89,20 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                 )
                 Column(Modifier.fillMaxWidth()) {
                     Spacer(Modifier.height(artHeight * 0.325f))
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                        color = Color(PreAuthGlassPolicy.lightSurface(p.readingSurface)),
+                    val density = LocalDensity.current
+                    val glassBackdrop = with(density) {
+                        PreAuthGlassBackdrop(
+                            bitmap = frame.bitmap,
+                            viewport = IntSize(width.roundToPx(), artHeight.roundToPx()),
+                            panelOrigin = IntOffset(20.dp.roundToPx(), (artHeight * 0.325f).roundToPx()),
+                            baseColor = surface,
+                        )
+                    }
+                    PreAuthGlassPanel(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                            .testTag("atrio-welcome-glass"),
+                        backdrop = glassBackdrop,
+                        tint = Color(PreAuthGlassPolicy.lightSurface(p.readingSurface)),
                         contentColor = ink, shape = RoundedCornerShape(18.dp),
                         border = BorderStroke(1.dp, Color(p.accent).copy(alpha = .28f)),
                     ) {

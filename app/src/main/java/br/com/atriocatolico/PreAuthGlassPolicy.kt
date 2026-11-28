@@ -8,6 +8,9 @@ package br.com.atriocatolico
 internal object PreAuthGlassPolicy {
     const val LIGHT_ALPHA: Int = 214 // 214/255
     const val DARK_ALPHA: Int = 153 // 60%
+    const val BLUR_RADIUS_DP: Int = 12
+    fun canBlur(sdk: Int, hardwareAccelerated: Boolean, enabled: Boolean = true): Boolean =
+        sdk >= 31 && hardwareAccelerated && enabled
     fun lightSurface(opaque: Long): Long =
         (opaque and 0x00FFFFFFL) or (LIGHT_ALPHA.toLong() shl 24)
     fun darkSurface(opaque: Long): Long =

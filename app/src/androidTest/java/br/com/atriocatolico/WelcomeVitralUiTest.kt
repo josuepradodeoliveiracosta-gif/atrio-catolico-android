@@ -6,6 +6,22 @@ import android.content.res.Configuration
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import android.content.Context
@@ -40,6 +56,70 @@ class WelcomeVitralUiTest {
     @get:Rule val compose = createComposeRule()
     private val seasons = listOf(Season.ADVENT, Season.CHRISTMAS, Season.ORDINARY,
         Season.LENT, Season.TRIDUUM, Season.EASTER)
+
+    @Test fun glassBlursOnlyPanelAndKeepsActionsInSupportedAndFallbackModes() {
+        assumeTrue(Build.VERSION.SDK_INT >= 31)
+        val enabled = mutableStateOf(false)
+        var clicks = 0
+        val native = Bitmap.createBitmap(160, 160, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(native)
+        val paint = android.graphics.Paint()
+        for (x in 0 until 160 step 4) {
+            paint.color = if (x % 8 == 0) android.graphics.Color.WHITE else android.graphics.Color.BLACK
+            canvas.drawRect(x.toFloat(), 0f, (x+4).toFloat(), 160f, paint)
+        }
+        val bitmap = native.asImageBitmap()
+        compose.setContent {
+            val density = LocalDensity.current
+            val supported = LocalView.current.isHardwareAccelerated
+            Box(Modifier.size(160.dp).testTag("glass-fixture")) {
+                Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                PreAuthGlassPanel(
+                    backdrop = with(density) {
+                        PreAuthGlassBackdrop(bitmap, IntSize(160.dp.roundToPx(),160.dp.roundToPx()),
+                            IntOffset(20.dp.roundToPx(),20.dp.roundToPx()), Color.White)
+                    },
+                    tint = Color(PreAuthGlassPolicy.lightSurface(0xFFFFF9F1L)),
+                    contentColor = Color.Black,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color.Black.copy(alpha=.28f)),
+                    modifier = Modifier.offset(20.dp,20.dp).size(120.dp),
+                    enableBlur = enabled.value && supported,
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomCenter) {
+                        Button(onClick = { clicks++ }, modifier = Modifier.testTag("glass-fixture-action")) {
+                            Text("Entrar")
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("atrio-preauth-glass-blur", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("glass-fixture-action").performClick()
+        val before = compose.onNodeWithTag("glass-fixture").captureToImage().toPixelMap()
+        compose.runOnIdle { enabled.value = true }
+        compose.onNodeWithTag("atrio-preauth-glass-blur", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("glass-fixture-action").performClick()
+        val after = compose.onNodeWithTag("glass-fixture").captureToImage().toPixelMap()
+        assertEquals(before.width, after.width)
+        assertEquals(before.height, after.height)
+        var inside = 0.0
+        var outside = 0.0
+        var count = 0
+        for (x in before.width/4 until before.width*3/4) {
+            for (y in before.height/4 until before.height*3/8) {
+                inside += kotlin.math.abs(before[x,y].red-after[x,y].red)
+                outside += kotlin.math.abs(before[x,y-before.height/4].red-after[x,y-before.height/4].red)
+                count++
+            }
+        }
+        assertTrue("Desfoque deve alterar pixels dentro do vidro", inside/count > .01)
+        assertTrue("Desfoque não pode alcançar arte fora do painel", outside/count < .005)
+        compose.runOnIdle { assertEquals(2, clicks) }
+        compose.runOnIdle { enabled.value = false }
+        compose.onNodeWithTag("atrio-preauth-glass-blur", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("glass-fixture-action").assertIsEnabled()
+    }
 
     @Test fun actualQaAssetsDecodeAndMatchManifest() {
         assumeTrue(BuildConfig.BUILD_TYPE == "qaGeral")
@@ -138,6 +218,7 @@ class WelcomeVitralUiTest {
         compose.onNodeWithTag("atrio-welcome-create").performScrollTo().performClick()
         compose.onNodeWithTag("atrio-welcome-login").assertExists()
         compose.onNodeWithTag("atrio-welcome-season-boas_vindas_vitral_advento.webp").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-welcome-glass", useUnmergedTree = true).assertDoesNotExist()
         compose.runOnIdle { assertEquals(1, creates) }
     }
 
@@ -149,6 +230,7 @@ class WelcomeVitralUiTest {
         }
         compose.onNodeWithTag("atrio-welcome-create").assertExists()
         compose.onNodeWithTag("atrio-welcome-season-boas_vindas_vitral_advento.webp").assertDoesNotExist()
+        compose.onNodeWithTag("atrio-welcome-glass", useUnmergedTree = true).assertDoesNotExist()
         compose.runOnIdle { assertEquals(0, loads) }
     }
 
@@ -175,6 +257,7 @@ class WelcomeVitralUiTest {
                     .fetchSemanticsNodes().size == 1
             }
             compose.onNodeWithTag("atrio-welcome-create").assertExists()
+            compose.onNodeWithTag("atrio-welcome-glass", useUnmergedTree = true).assertExists()
         }
         var previous: Season? = null
         dates.forEach { (date, season) ->

@@ -24,6 +24,15 @@ class PreAuthGlassPolicyTest {
         return .2126*linear(16)+.7152*linear(8)+.0722*linear(0)
     }
     private fun contrast(a: Long,b: Long) = (maxOf(lum(a),lum(b))+.05)/(minOf(lum(a),lum(b))+.05)
+    @Test fun blurRequiresAndroid12AndHardwareAndOptIn() {
+        for (sdk in 26..30) assertFalse(PreAuthGlassPolicy.canBlur(sdk, true))
+        for (sdk in 31..35) {
+            assertTrue(PreAuthGlassPolicy.canBlur(sdk, true))
+            assertFalse(PreAuthGlassPolicy.canBlur(sdk, false))
+            assertFalse(PreAuthGlassPolicy.canBlur(sdk, true, false))
+        }
+        assertEquals(12, PreAuthGlassPolicy.BLUR_RADIUS_DP)
+    }
     @Test fun lightTintKeepsSixPalettesReadableEvenAgainstBlack() {
         val seasons = listOf(Season.ADVENT, Season.CHRISTMAS, Season.ORDINARY,
             Season.LENT, Season.TRIDUUM, Season.EASTER)

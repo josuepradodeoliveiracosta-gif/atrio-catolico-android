@@ -440,6 +440,20 @@ if [[ "${ATRIO_QA_SUITE:-}" == ParticipationVitralUiTest ]]; then
   fi
   exit "$qa_failed"
 fi
+if [[ "${ATRIO_QA_SUITE:-}" == WelcomeVitralUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
+    echo "Boas-vindas exige QA Geral local" >&2; exit 2
+  }
+  run_suite WelcomeVitralUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+  mkdir -p qa-android-suite-results/welcome-preview
+  if ! adb pull /data/local/tmp/atrio-welcome-preview/. qa-android-suite-results/welcome-preview/; then
+    qa_failed=1
+  fi
+  if [[ "$(find qa-android-suite-results/welcome-preview -maxdepth 1 -name '*.png' | wc -l)" -lt 12 ]]; then
+    qa_failed=1
+  fi
+  exit "$qa_failed"
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2
