@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {initializeTestEnvironment,assertFails,assertSucceeds} from '@firebase/rules-unit-testing';
-import {doc,getDoc,setDoc,updateDoc,deleteDoc,writeBatch,serverTimestamp} from 'firebase/firestore';
+import {doc,getDoc,getDocFromServer,setDoc,updateDoc,deleteDoc,writeBatch,serverTimestamp} from 'firebase/firestore';
 import {setQaPolicy,proposeQaCase} from './guardian-qa-boundary.mjs';
 const PROJECT='demo-atrio-guardian-boundary',HOST='127.0.0.1:8089';
 assert.equal(process.env.FIRESTORE_EMULATOR_HOST,HOST);
@@ -17,7 +17,16 @@ const anonymous=env.unauthenticatedContext().firestore();
 const policy='qa_guardian_control/policy',budget='qa_guardian_control/budget',source='qa_guardian_sources/',cases='qa_guardian_cases/',audit='qa_guardian_audit/',notices='qa_guardian_notices/';
 const a='fixture_a',b='fixture_b',c='fixture_c';
 const seed=async entries=>env.withSecurityRulesDisabled(async context=>{for(const [path,data] of entries)await setDoc(doc(context.firestore(),path),data);});
-const inspect=async path=>env.withSecurityRulesDisabled(async context=>{const snapshot=await getDoc(doc(context.firestore(),path));return snapshot.exists()?snapshot.data():null;});
+// withSecurityRulesDisabled resolves void; retain the result explicitly.
+const inspect=async path=>{
+ let data;
+ await env.withSecurityRulesDisabled(async context=>{
+   const snapshot=await getDocFromServer(doc(context.firestore(),path));
+   data=snapshot.exists()?snapshot.data():null;
+ });
+ assert.notEqual(data,undefined,'inspection callback must complete');
+ return data;
+};
 let count=0;
 const check=async(name,fn)=>{await fn();count++;console.log('GUARDIAN BOUNDARY PASS',name);};
 const reset=async(used=0)=>{await env.clearFirestore();await seed([
