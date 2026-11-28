@@ -1,4 +1,4 @@
-name: QA — vidro nos diálogos pré-login
+name: QA — acessibilidade e limite do vidro pré-login
 on:
   push:
     branches: [qa/glassmorphism-pre-login]
@@ -9,10 +9,10 @@ permissions:
 jobs:
   android-ui:
     if: github.repository == 'josuepradodeoliveiracosta-gif/atrio-catolico-android' && github.ref == 'refs/heads/qa/glassmorphism-pre-login'
-    name: Diálogos legais — testes essenciais e capturas
+    name: TalkBack e limite da camada decorativa
     runs-on: ubuntu-latest
     env:
-      ATRIO_QA_SUITE: PreAuthLegalGlassUiTest
+      ATRIO_QA_SUITE: PreAuthGlassAccessibilityUiTest
       ATRIO_QA_APK: qaGeral
       ATRIO_QA_GERAL_BUILD: '1'
       ATRIO_QA_FIREBASE_PROJECT: demo-atrio-v11
@@ -22,15 +22,15 @@ jobs:
       - name: Obter revisão do evento
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: 0b8bd9490d3e22f5a73e2eba15c03c5d74ee006b
+          ref: 8c2a79c8fa849e1ad12783a21d72ed3183444401
           persist-credentials: false
       - name: Conferir SHA e árvore do candidato
         working-directory: ${{ github.workspace }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "0b8bd9490d3e22f5a73e2eba15c03c5d74ee006b"
-          test "$(git rev-parse HEAD^{tree})" = "c56b5a7aaab17d7772bb91211dce5bae5be32fe8"
+          test "$(git rev-parse HEAD)" = "8c2a79c8fa849e1ad12783a21d72ed3183444401"
+          test "$(git rev-parse HEAD^{tree})" = "3f5188d4af6859e69c3148e2799f63a3ee63010e"
       - name: Registrar o commit executado pela suíte
         run: git rev-parse HEAD
       - name: Preparar Java 17
@@ -115,7 +115,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -accel on -camera-back none
           script: bash scripts/run-qa-android-emulator.sh
-      - name: Teste JVM somente do novo contraste modal
+      - name: Teste JVM somente do limite de desfoque
         shell: bash
         run: |
           set -euo pipefail
@@ -124,7 +124,7 @@ jobs:
               p.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
                   if (name == 'testQaGeralUnitTest') {
                       filter {
-                          includeTestsMatching 'br.com.atriocatolico.PreAuthGlassPolicyTest.modalTintReadableEvenWithoutWindowDimming'
+                          includeTestsMatching 'br.com.atriocatolico.PreAuthGlassPolicyTest.blurBudgetRejectsLargeLayersAndLowRam'
                           failOnNoMatchingTests = true
                       }
                   }
@@ -140,13 +140,13 @@ jobs:
           assert suite.get('name') == 'br.com.atriocatolico.PreAuthGlassPolicyTest'
           assert suite.get('tests') == '1', suite.attrib
           assert all(suite.get(k) == '0' for k in ('failures', 'errors', 'skipped')), suite.attrib
-          assert suite.find('testcase').get('name') == 'modalTintReadableEvenWithoutWindowDimming'
+          assert suite.find('testcase').get('name') == 'blurBudgetRejectsLargeLayersAndLowRam'
           PY
       - name: Relatório de testes
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: qa-glass-legal
+          name: qa-glass-accessibility
           path: |
             app/build/test-results/testQaGeralUnitTest
             app/build/reports/androidTests
