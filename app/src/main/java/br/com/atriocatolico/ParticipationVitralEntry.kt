@@ -87,17 +87,17 @@ internal fun ParticipationVitralEntry(
         val palette = frame?.spec
         val region = frame?.let { ParticipationVitralPolicy.readingRegion(season) }
         val glass = frame != null && region != null
-        val title = if (glass) Color(PreAuthGlassPolicy.ENTRANCE_TITLE) else defaultTitle
-        val outline = if (glass) Color(PreAuthGlassPolicy.ENTRANCE_OUTLINE) else defaultOutline
+        val title = if (glass) Color(PreAuthGlassPolicy.GLASS_TITLE) else defaultTitle
+        val outline = if (glass) Color(PreAuthGlassPolicy.GLASS_OUTLINE) else defaultOutline
         var artPlacement by remember(frame, region) { mutableStateOf<PreAuthFormPlacement?>(null) }
         var glassPlacement by remember(frame, region) { mutableStateOf<PreAuthFormPlacement?>(null) }
         Column(
-            Modifier.fillMaxSize().background(defaultBackground).verticalScroll(scroll)
+            Modifier.fillMaxSize().background(if (glass) PreAuthFormBaseColor else defaultBackground).verticalScroll(scroll)
                 .testTag("atrio-participation-scroll"),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Layout(
-                modifier = Modifier.width(width).background(defaultBackground),
+                modifier = Modifier.width(width).background(if (glass) PreAuthFormBaseColor else defaultBackground),
                 content = {
                     if (frame != null && region != null) {
                         // Decorative image: no spoken description or touch interception.
@@ -106,14 +106,18 @@ internal fun ParticipationVitralEntry(
                             .onGloballyPositioned { artPlacement = PreAuthFormPlacement.from(it) }) {
                             drawParticipationArtwork(frame.bitmap,
                                 IntSize(size.width.roundToInt(), size.height.roundToInt()), region)
+                            drawRect(PreAuthFormScrim)
                         }
                     }
                     val controls: @Composable () -> Unit = {
                     Column(
-                        Modifier.fillMaxWidth().padding(if (glass) 8.dp else 0.dp)
+                        Modifier.fillMaxWidth().padding(
+                            horizontal = if (glass) PreAuthGlassPolicy.PARTICIPATION_HORIZONTAL_PADDING_DP.dp else 0.dp,
+                            vertical = if (glass) PreAuthGlassPolicy.GLASS_PADDING_DP.dp else 0.dp,
+                        )
                             .then(if (glass) Modifier.testTag("atrio-participation-glass") else Modifier),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(if (region == null) 12.dp else 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(if (glass) PreAuthGlassPolicy.GLASS_GAP_DP.dp else 12.dp),
                     ) {
                     RegistrationCompactHeader(title, outline, backAction, enabled = !leaving)
                     Text(
@@ -152,17 +156,12 @@ internal fun ParticipationVitralEntry(
                         val placement = glassPlacement
                         val backdrop = if (art != null && placement != null) PreAuthGlassBackdrop(
                             frame.bitmap, art.size, placement.origin - art.origin,
-                            defaultBackground, readingRegion = region,
+                            PreAuthFormBaseColor, scrim = PreAuthFormScrim, readingRegion = region,
                         ) else null
-                        PreAuthGlassPanel(
+                        PreAuthStandardGlassPanel(
                             backdrop = backdrop,
                             modifier = Modifier.fillMaxWidth().testTag("atrio-participation-reading")
                                 .onGloballyPositioned { glassPlacement = PreAuthFormPlacement.from(it) },
-                            tint = Color(PreAuthGlassPolicy.darkSurface(PreAuthGlassPolicy.ENTRANCE_BASE)),
-                            localScrim = Color(PreAuthGlassPolicy.ENTRANCE_SCRIM),
-                            contentColor = Color(PreAuthGlassPolicy.ENTRANCE_BODY),
-                            shape = RoundedCornerShape(18.dp),
-                            border = BorderStroke(1.dp, outline.copy(alpha = .55f)),
                             content = controls,
                         )
                     } else {

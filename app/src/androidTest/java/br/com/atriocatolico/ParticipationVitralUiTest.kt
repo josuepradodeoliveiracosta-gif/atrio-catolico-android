@@ -283,11 +283,11 @@ class ParticipationVitralUiTest {
         for (x in pixels.width/10 until pixels.width*9/10 step 8) {
             for (y in pixels.height/10 until pixels.height*9/10 step 8) {
                 val c = pixels[x,y]
-                if (c.red < .55f && c.green < .55f && c.blue < .55f) dark++
+                if (c.red < .35f && c.green < .35f && c.blue < .35f) dark++
                 total++
             }
         }
-        assertTrue("Painel não pode voltar a parecer branco: $dark/$total", total > 0 && dark.toDouble()/total >= .60)
+        assertTrue("Painel deve manter tonalidade escura do cadastro: $dark/$total", total > 0 && dark.toDouble()/total >= .60)
     }
 
     private fun captureParticipation(name: String) {

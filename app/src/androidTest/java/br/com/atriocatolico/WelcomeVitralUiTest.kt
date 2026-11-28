@@ -79,9 +79,9 @@ class WelcomeVitralUiTest {
                         PreAuthGlassBackdrop(bitmap, IntSize(160.dp.roundToPx(),160.dp.roundToPx()),
                             IntOffset(20.dp.roundToPx(),20.dp.roundToPx()), Color.White)
                     },
-                    tint = Color(PreAuthGlassPolicy.darkSurface(PreAuthGlassPolicy.ENTRANCE_BASE)),
-                    localScrim = Color(PreAuthGlassPolicy.ENTRANCE_SCRIM),
-                    contentColor = Color(PreAuthGlassPolicy.ENTRANCE_BODY),
+                    tint = Color(PreAuthGlassPolicy.darkSurface(PreAuthGlassPolicy.GLASS_BASE)),
+                    localScrim = Color(PreAuthGlassPolicy.ART_SCRIM),
+                    contentColor = Color(PreAuthGlassPolicy.GLASS_BODY),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color.Black.copy(alpha=.28f)),
                     modifier = Modifier.offset(20.dp,20.dp).size(120.dp),
@@ -398,11 +398,11 @@ class WelcomeVitralUiTest {
         for (x in pixels.width/10 until pixels.width*9/10 step 8) {
             for (y in pixels.height/10 until pixels.height*9/10 step 8) {
                 val c = pixels[x,y]
-                if (c.red < .55f && c.green < .55f && c.blue < .55f) dark++
+                if (c.red < .35f && c.green < .35f && c.blue < .35f) dark++
                 total++
             }
         }
-        assertTrue("Painel não pode voltar a parecer branco: $dark/$total", total > 0 && dark.toDouble()/total >= .60)
+        assertTrue("Painel deve manter tonalidade escura do cadastro: $dark/$total", total > 0 && dark.toDouble()/total >= .60)
     }
 
     private fun captureWelcome(name: String) {

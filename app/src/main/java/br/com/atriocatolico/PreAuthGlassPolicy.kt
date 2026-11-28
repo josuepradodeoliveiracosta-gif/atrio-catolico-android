@@ -8,12 +8,20 @@ package br.com.atriocatolico
 internal object PreAuthGlassPolicy {
     const val LIGHT_ALPHA: Int = 166 // 65% tint, 35% artwork
     const val DARK_ALPHA: Int = 153 // 60%
-    // Only inside entrance panels: preserve all ornament pixels outside.
-    const val ENTRANCE_SCRIM: Long = 0x59000000L // 35% black
-    const val ENTRANCE_BASE: Long = 0xFF211922L
-    const val ENTRANCE_TITLE: Long = 0xFFFFE4AAL
-    const val ENTRANCE_BODY: Long = 0xFFFFF5E6L
-    const val ENTRANCE_OUTLINE: Long = 0xFFD9B97BL
+    // Registration is the visual reference for all four pre-auth screens.
+    const val ART_SCRIM: Long = 0xA6000000L // ~65% black on the whole artwork
+    const val GLASS_BASE: Long = 0xFF211922L
+    const val GLASS_TITLE: Long = 0xFFFFE4AAL
+    const val GLASS_BODY: Long = 0xFFFFF5E6L
+    const val GLASS_OUTLINE: Long = 0xFFD9B97BL
+    const val GLASS_RADIUS_DP: Int = 20
+    const val GLASS_BORDER_DP: Int = 1
+    const val GLASS_BORDER_ALPHA: Float = .55f
+    const val GLASS_PADDING_DP: Int = 16
+    const val GLASS_GAP_DP: Int = 10
+    // The participation reading band is only 72% of the artwork width.
+    const val PARTICIPATION_HORIZONTAL_PADDING_DP: Int = 12
+    fun standardSurface(): Long = darkSurface(GLASS_BASE)
     const val BLUR_RADIUS_DP: Int = 12
     // Bound the optional GPU layer even for scrollable forms and 200% fonts.
     const val MAX_BLUR_PIXELS: Long = 2_500_000L
@@ -22,10 +30,10 @@ internal object PreAuthGlassPolicy {
         !lowRam && width in 1..MAX_BLUR_EDGE && height in 1..MAX_BLUR_EDGE &&
             width.toLong() * height.toLong() <= MAX_BLUR_PIXELS
     const val MODAL_ALPHA: Int = 214 // Independent window: safe even over white.
-    const val MODAL_BASE: Long = 0xFF211922L
-    const val MODAL_TITLE: Long = 0xFFFFE4AAL
-    const val MODAL_BODY: Long = 0xFFFFF5E6L
-    const val MODAL_OUTLINE: Long = 0xFFD9B97BL
+    const val MODAL_BASE: Long = GLASS_BASE
+    const val MODAL_TITLE: Long = GLASS_TITLE
+    const val MODAL_BODY: Long = GLASS_BODY
+    const val MODAL_OUTLINE: Long = GLASS_OUTLINE
     fun modalSurface(): Long = (MODAL_BASE and 0x00FFFFFFL) or (MODAL_ALPHA.toLong() shl 24)
     fun canBlur(sdk: Int, hardwareAccelerated: Boolean, enabled: Boolean = true): Boolean =
         sdk >= 31 && hardwareAccelerated && enabled

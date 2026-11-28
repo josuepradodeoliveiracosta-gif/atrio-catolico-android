@@ -127,8 +127,29 @@ internal fun PreAuthGlassPanel(
     }
 }
 
-internal val PreAuthFormBaseColor = Color(0xFF211922)
-internal val PreAuthFormScrim = Color.Black.copy(alpha = .65f)
+internal val PreAuthFormBaseColor = Color(PreAuthGlassPolicy.GLASS_BASE)
+internal val PreAuthFormScrim = Color(PreAuthGlassPolicy.ART_SCRIM)
+
+/** Single registration-derived appearance for welcome, participation, login
+ * and registration. Background must already have the same art scrim; the
+ * replay carries it exactly once, never on top of the already-dimmed image. */
+@Composable
+internal fun PreAuthStandardGlassPanel(
+    backdrop: PreAuthGlassBackdrop?,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    PreAuthGlassPanel(
+        modifier = modifier,
+        backdrop = backdrop,
+        tint = Color(PreAuthGlassPolicy.standardSurface()),
+        contentColor = Color(PreAuthGlassPolicy.GLASS_BODY),
+        shape = RoundedCornerShape(PreAuthGlassPolicy.GLASS_RADIUS_DP.dp),
+        border = BorderStroke(PreAuthGlassPolicy.GLASS_BORDER_DP.dp,
+            Color(PreAuthGlassPolicy.GLASS_OUTLINE).copy(alpha = PreAuthGlassPolicy.GLASS_BORDER_ALPHA)),
+        content = content,
+    )
+}
 
 @Composable
 internal fun PreAuthFormArtwork(bitmap: ImageBitmap?, kind: String, season: String) {
@@ -160,8 +181,6 @@ internal fun PreAuthFormPanel(
     viewport: PreAuthFormPlacement?,
     fallbackColor: Color,
     fallbackInk: Color,
-    glassInk: Color,
-    glassBorder: Color,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(20.dp)
@@ -175,13 +194,10 @@ internal fun PreAuthFormPanel(
         PreAuthGlassBackdrop(bitmap, viewport.size, it.origin - viewport.origin,
             PreAuthFormBaseColor, ContentScale.Crop, PreAuthFormScrim)
     } else null
-    PreAuthGlassPanel(
+    PreAuthStandardGlassPanel(
         modifier = modifier.testTag("atrio-preauth-form-glass")
             .onGloballyPositioned { placement = PreAuthFormPlacement.from(it) },
         backdrop = backdrop,
-        tint = Color(PreAuthGlassPolicy.darkSurface(0xFF211922L)),
-        contentColor = glassInk, shape = shape,
-        border = BorderStroke(1.dp, glassBorder.copy(alpha = .55f)),
         content = content,
     )
 }

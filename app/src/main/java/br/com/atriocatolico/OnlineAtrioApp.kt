@@ -332,10 +332,10 @@ internal fun OnlineAuthScreen(
     val glassForm = artBitmap != null
     val darkForm = stainedRegistration || glassForm
     var formViewport by remember { mutableStateOf<PreAuthFormPlacement?>(null) }
-    val formBackground = if (darkForm) Color(0xFF211922) else if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
-    val formHeading = if (darkForm) Color(0xFFFFE4AA) else if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
-    val formText = if (darkForm) Color(0xFFFFF5E6) else if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
-    val formOutline = if (darkForm) Color(0xFFD9B97B) else if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
+    val formBackground = if (darkForm) Color(PreAuthGlassPolicy.GLASS_BASE) else if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
+    val formHeading = if (darkForm) Color(PreAuthGlassPolicy.GLASS_TITLE) else if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
+    val formText = if (darkForm) Color(PreAuthGlassPolicy.GLASS_BODY) else if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
+    val formOutline = if (darkForm) Color(PreAuthGlassPolicy.GLASS_OUTLINE) else if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
     val formError = if (darkForm) Color(0xFFFFB4AB) else MaterialTheme.colorScheme.error
     val fieldColors = if (darkForm) OutlinedTextFieldDefaults.colors(
         focusedTextColor = formText,
@@ -407,11 +407,10 @@ internal fun OnlineAuthScreen(
                 if (stainedRegistration) formBackground.copy(alpha = .86f) else formBackground
             } else Paper,
             fallbackInk = if (registering) formText else CardDefaults.cardColors(containerColor = Paper).contentColor,
-            glassInk = formText, glassBorder = formOutline,
         ) {
             Column(
-                Modifier.padding(if (stainedRegistration) 16.dp else if (registering) 0.dp else 20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                Modifier.padding(if (glassForm || stainedRegistration) PreAuthGlassPolicy.GLASS_PADDING_DP.dp else if (registering) 0.dp else 20.dp),
+                verticalArrangement = Arrangement.spacedBy(PreAuthGlassPolicy.GLASS_GAP_DP.dp)
             ) {
                 Text(
                     if (registering) "Criar conta" else "Entrar na comunidade",

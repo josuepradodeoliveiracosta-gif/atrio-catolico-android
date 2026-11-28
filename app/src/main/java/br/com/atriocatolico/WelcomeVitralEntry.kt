@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -59,10 +58,10 @@ internal fun WelcomeVitralEntry(
 @Composable
 private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit, onLogin: () -> Unit) {
     val p = frame.spec
-    val surface = Color(p.readingSurface)
-    val accent = Color(PreAuthGlassPolicy.ENTRANCE_TITLE)
-    val outline = Color(PreAuthGlassPolicy.ENTRANCE_OUTLINE)
-    val ink = Color(PreAuthGlassPolicy.ENTRANCE_BODY)
+    val surface = PreAuthFormBaseColor
+    val accent = Color(PreAuthGlassPolicy.GLASS_TITLE)
+    val outline = Color(PreAuthGlassPolicy.GLASS_OUTLINE)
+    val ink = Color(PreAuthGlassPolicy.GLASS_BODY)
     val white = Color(p.onPrimary)
     val createInteraction = remember { MutableInteractionSource() }
     val loginInteraction = remember { MutableInteractionSource() }
@@ -71,7 +70,7 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
     val loginPressed by loginInteraction.collectIsPressedAsState()
     val loginFocused by loginInteraction.collectIsFocusedAsState()
     val scroll = rememberScrollState()
-    val surround = if (isSystemInDarkTheme()) Color(0xFF20171A) else surface
+    val surround = PreAuthFormBaseColor
 
     BoxWithConstraints(
         Modifier.fillMaxSize().background(surround).testTag("atrio-signup-welcome")
@@ -88,6 +87,7 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                     modifier = Modifier.fillMaxWidth().height(artHeight).testTag("atrio-welcome-vitral"),
                     contentScale = ContentScale.Fit, alignment = Alignment.TopCenter,
                 )
+                Box(Modifier.matchParentSize().background(PreAuthFormScrim))
                 Column(Modifier.fillMaxWidth()) {
                     Spacer(Modifier.height(artHeight * 0.325f))
                     val density = LocalDensity.current
@@ -97,21 +97,18 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                             viewport = IntSize(width.roundToPx(), artHeight.roundToPx()),
                             panelOrigin = IntOffset(20.dp.roundToPx(), (artHeight * 0.325f).roundToPx()),
                             baseColor = surface,
+                            scrim = PreAuthFormScrim,
                         )
                     }
-                    PreAuthGlassPanel(
+                    PreAuthStandardGlassPanel(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
                             .testTag("atrio-welcome-glass"),
                         backdrop = glassBackdrop,
-                        tint = Color(PreAuthGlassPolicy.darkSurface(PreAuthGlassPolicy.ENTRANCE_BASE)),
-                        localScrim = Color(PreAuthGlassPolicy.ENTRANCE_SCRIM),
-                        contentColor = ink, shape = RoundedCornerShape(18.dp),
-                        border = BorderStroke(1.dp, outline.copy(alpha = .55f)),
                     ) {
                         Column(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                            Modifier.fillMaxWidth().padding(PreAuthGlassPolicy.GLASS_PADDING_DP.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(PreAuthGlassPolicy.GLASS_GAP_DP.dp),
                         ) {
                             Text("Átrio Católico", fontFamily = FontFamily.Serif,
                                 fontWeight = FontWeight.Bold, color = accent,
