@@ -183,16 +183,17 @@ internal fun PreAuthFormPanel(
     viewport: PreAuthFormPlacement?,
     fallbackColor: Color,
     fallbackInk: Color,
+    useStandardGlass: Boolean,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(20.dp)
-    if (bitmap == null) {
+    if (!useStandardGlass) {
         Card(modifier = modifier, colors = CardDefaults.cardColors(
             containerColor = fallbackColor, contentColor = fallbackInk), shape = shape) { content() }
         return
     }
     var placement by remember { mutableStateOf<PreAuthFormPlacement?>(null) }
-    val backdrop = if (viewport != null) placement?.let {
+    val backdrop = if (bitmap != null && viewport != null) placement?.let {
         PreAuthGlassBackdrop(bitmap, viewport.size, it.origin - viewport.origin,
             PreAuthFormBaseColor, ContentScale.Crop, PreAuthFormScrim)
     } else null

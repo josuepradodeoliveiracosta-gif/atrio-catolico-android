@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalContext
 import br.com.atriocatolico.LiturgicalCalendarBR.Season
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /** A arte e a paleta só são publicadas juntas, após uma decodificação válida. */
@@ -103,8 +104,11 @@ internal fun rememberWelcomeVitralFrame(
                     loader(context, spec, targetWidth, targetHeight)
                 }
                 val decoded = bitmap?.let { WelcomeVitralFrame(spec, it) }
-                if (decoded != null) visitCache?.put(context, targetWidth, targetHeight, retry, loader, decoded)
-                value = decoded
+                withContext(Dispatchers.Main.immediate) {
+                    ensureActive()
+                    if (decoded != null) visitCache?.put(context, targetWidth, targetHeight, retry, loader, decoded)
+                    value = decoded
+                }
             }
         }
         frame

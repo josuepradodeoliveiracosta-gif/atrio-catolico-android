@@ -33,8 +33,9 @@ import com.google.firebase.firestore.Source
  */
 @Composable
 internal fun RegistrationWelcomeScreen(onCreate: () -> Unit, onLogin: () -> Unit,
-    visitCache: WelcomeVitralVisitCache? = null) {
-    WelcomeVitralEntry(onCreate, onLogin, visitCache = visitCache)
+    visitCache: WelcomeVitralVisitCache? = null,
+    loader: (android.content.Context, WelcomeVitralSpec, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap? = ::decodeWelcomeVitral) {
+    WelcomeVitralEntry(onCreate, onLogin, visitCache = visitCache, loader = loader)
 }
 
 @Composable
@@ -127,8 +128,9 @@ internal fun RegistrationCompactHeader(
 }
 
 @Composable
-internal fun RegistrationParticipationScreen(onContinue: () -> Unit, onBack: () -> Unit) {
-    ParticipationVitralEntry(onContinue, onBack)
+internal fun RegistrationParticipationScreen(onContinue: () -> Unit, onBack: () -> Unit,
+    loader: (android.content.Context, WelcomeVitralSpec, Int, Int) -> androidx.compose.ui.graphics.ImageBitmap? = ::decodeWelcomeVitral) {
+    ParticipationVitralEntry(onContinue, onBack, loader = loader)
 }
 
 @Composable

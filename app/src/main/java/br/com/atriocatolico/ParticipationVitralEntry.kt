@@ -41,13 +41,15 @@ internal fun ParticipationVitralEntry(
     buildType: String = BuildConfig.BUILD_TYPE,
     loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap? = ::decodeWelcomeVitral,
 ) {
-    if (buildType != "qaGeral") {
+    val palette = ParticipationVitralPolicy.resolve(buildType, season)
+    val region = ParticipationVitralPolicy.readingRegion(season)
+    if (palette == null || region == null) {
         RegistrationParticipationDefault(onContinue, onBack)
         return
     }
 
     val dark = isSystemInDarkTheme()
-    val defaultBackground = if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
+    val defaultBackground = PreAuthFormBaseColor
     val defaultTitle = if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
     val defaultOutline = if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
     val scroll = rememberScrollState()
@@ -84,13 +86,11 @@ internal fun ParticipationVitralEntry(
             with(density) { artHeight.roundToPx() },
             season, buildType, loader,
         )
-        val palette = frame?.spec
-        val region = frame?.let { ParticipationVitralPolicy.readingRegion(season) }
-        val glass = frame != null && region != null
+        val glass = true
         val title = if (glass) Color(PreAuthGlassPolicy.GLASS_TITLE) else defaultTitle
         val outline = if (glass) Color(PreAuthGlassPolicy.GLASS_OUTLINE) else defaultOutline
-        var artPlacement by remember(frame, region) { mutableStateOf<PreAuthFormPlacement?>(null) }
-        var glassPlacement by remember(frame, region) { mutableStateOf<PreAuthFormPlacement?>(null) }
+        var artPlacement by remember(region) { mutableStateOf<PreAuthFormPlacement?>(null) }
+        var glassPlacement by remember(region) { mutableStateOf<PreAuthFormPlacement?>(null) }
         Column(
             Modifier.fillMaxSize().background(if (glass) PreAuthFormBaseColor else defaultBackground).verticalScroll(scroll)
                 .testTag("atrio-participation-scroll"),
@@ -99,12 +99,12 @@ internal fun ParticipationVitralEntry(
             Layout(
                 modifier = Modifier.width(width).background(if (glass) PreAuthFormBaseColor else defaultBackground),
                 content = {
-                    if (frame != null && region != null) {
-                        // Decorative image: no spoken description or touch interception.
-                        Canvas(Modifier.testTag("atrio-participation-season-" +
-                            frame.spec.assetName.substringAfterLast('/'))
+                    run {
+                        // Reserve identical artwork geometry even before decode succeeds.
+                        Canvas(Modifier.testTag(if (frame != null) "atrio-participation-season-" +
+                            frame.spec.assetName.substringAfterLast('/') else "atrio-participation-no-art")
                             .onGloballyPositioned { artPlacement = PreAuthFormPlacement.from(it) }) {
-                            drawParticipationArtwork(frame.bitmap,
+                            if (frame != null) drawParticipationArtwork(frame.bitmap,
                                 IntSize(size.width.roundToInt(), size.height.roundToInt()), region)
                             drawRect(PreAuthFormScrim)
                         }
@@ -151,10 +151,10 @@ internal fun ParticipationVitralEntry(
                     }
                     }
                     }
-                    if (frame != null && region != null) {
+                    run {
                         val art = artPlacement
                         val placement = glassPlacement
-                        val backdrop = if (art != null && placement != null) PreAuthGlassBackdrop(
+                        val backdrop = if (frame != null && art != null && placement != null) PreAuthGlassBackdrop(
                             frame.bitmap, art.size, placement.origin - art.origin,
                             PreAuthFormBaseColor, scrim = PreAuthFormScrim, readingRegion = region,
                         ) else null
@@ -165,23 +165,16 @@ internal fun ParticipationVitralEntry(
                                 .onGloballyPositioned { glassPlacement = PreAuthFormPlacement.from(it) },
                             content = controls,
                         )
-                    } else {
-                        Box(Modifier.testTag("atrio-participation-reading")) { controls() }
                     }
                 },
             ) { measurables, constraints ->
                 val w = constraints.maxWidth
-                val side = if (region == null) 24.dp.roundToPx()
-                    else (w * 0.14f).roundToInt().coerceAtLeast(1)
+                val side = (w * 0.14f).roundToInt().coerceAtLeast(1)
                 val readingWidth = (w - 2 * side).coerceAtLeast(1)
                 val controls = measurables.last().measure(
                     Constraints(minWidth = readingWidth, maxWidth = readingWidth)
                 )
-                if (region == null || frame == null) {
-                    val padding = 24.dp.roundToPx()
-                    val height = maxOf(viewportHeight.roundToPx(), controls.height + 2 * padding)
-                    layout(w, height) { controls.placeRelative((w - readingWidth) / 2, padding) }
-                } else {
+                run {
                     val natural = (w * ratio).roundToInt()
                     val geometry = region.vertical(natural, controls.height, 8.dp.roundToPx())
                     val art = measurables.first().measure(Constraints.fixed(w, geometry.total))

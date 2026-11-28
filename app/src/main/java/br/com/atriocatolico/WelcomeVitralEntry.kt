@@ -37,7 +37,8 @@ internal fun WelcomeVitralEntry(
     loader: (Context, WelcomeVitralSpec, Int, Int) -> ImageBitmap? = ::decodeWelcomeVitral,
     visitCache: WelcomeVitralVisitCache? = null,
 ) {
-    if (WelcomeVitralPolicy.resolve(buildType, season) == null) {
+    val spec = WelcomeVitralPolicy.resolve(buildType, season)
+    if (spec == null) {
         RegistrationWelcomeDefault(onCreate, onLogin)
         return
     }
@@ -50,14 +51,12 @@ internal fun WelcomeVitralEntry(
             targetHeight = with(density) { artHeight.roundToPx() },
             season = season, buildType = buildType, loader = loader, visitCache = visitCache,
         )
-        if (frame == null) RegistrationWelcomeDefault(onCreate, onLogin)
-        else WelcomeVitralScreen(frame, onCreate, onLogin)
+        WelcomeVitralScreen(spec, frame?.bitmap, onCreate, onLogin)
     }
 }
 
 @Composable
-private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit, onLogin: () -> Unit) {
-    val p = frame.spec
+private fun WelcomeVitralScreen(p: WelcomeVitralSpec, bitmap: ImageBitmap?, onCreate: () -> Unit, onLogin: () -> Unit) {
     val surface = PreAuthFormBaseColor
     val accent = Color(PreAuthGlassPolicy.GLASS_TITLE)
     val outline = Color(PreAuthGlassPolicy.GLASS_OUTLINE)
@@ -81,9 +80,10 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
         val artHeight = width * (1800f / 790f)
         Column(Modifier.width(width).verticalScroll(scroll)) {
             Box(Modifier.fillMaxWidth().heightIn(min = artHeight).background(surface)
-                .testTag("atrio-welcome-season-" + p.assetName.substringAfterLast('/'))) {
-                Image(
-                    bitmap = frame.bitmap, contentDescription = null,
+                .then(if (bitmap != null) Modifier.testTag("atrio-welcome-season-" + p.assetName.substringAfterLast('/'))
+                    else Modifier.testTag("atrio-welcome-no-art"))) {
+                if (bitmap != null) Image(
+                    bitmap = bitmap, contentDescription = null,
                     modifier = Modifier.fillMaxWidth().height(artHeight).testTag("atrio-welcome-vitral"),
                     contentScale = ContentScale.Fit, alignment = Alignment.TopCenter,
                 )
@@ -91,15 +91,15 @@ private fun WelcomeVitralScreen(frame: WelcomeVitralFrame, onCreate: () -> Unit,
                 Column(Modifier.fillMaxWidth()) {
                     Spacer(Modifier.height(artHeight * 0.325f))
                     val density = LocalDensity.current
-                    val glassBackdrop = with(density) {
+                    val glassBackdrop = if (bitmap != null) with(density) {
                         PreAuthGlassBackdrop(
-                            bitmap = frame.bitmap,
+                            bitmap = bitmap,
                             viewport = IntSize(width.roundToPx(), artHeight.roundToPx()),
                             panelOrigin = IntOffset(20.dp.roundToPx(), (artHeight * 0.325f).roundToPx()),
                             baseColor = surface,
                             scrim = PreAuthFormScrim,
                         )
-                    }
+                    } else null
                     PreAuthStandardGlassPanel(
                         paleArtwork = true,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)

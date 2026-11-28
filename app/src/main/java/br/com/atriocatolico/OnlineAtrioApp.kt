@@ -242,7 +242,8 @@ internal fun OnlineAuthScreen(
     onRegistrationCreated: (String) -> Unit = {},
     onVerificationSent: (String, Boolean) -> Unit = { _, _ -> },
     onRegistrationFailed: () -> Unit = {},
-    showWelcomeInIsolatedQa: Boolean = false
+    showWelcomeInIsolatedQa: Boolean = false,
+    artworkLoaders: PreAuthArtworkLoaders = PreAuthArtworkLoaders.Default
 ) {
     val isIsolatedQa = BuildConfig.DEBUG &&
         com.google.firebase.FirebaseApp.getInstance().options.projectId == "demo-atrio-v11"
@@ -251,6 +252,17 @@ internal fun OnlineAuthScreen(
         mutableStateOf(if (startAtLogin) AuthPage.LOGIN else AuthPage.WELCOME)
     }
     val welcomeVisitCache = remember { WelcomeVitralVisitCache() }
+    val formArtCache = remember { PreAuthFormArtCache() }
+    val artContext = LocalContext.current
+    val authSeason = LocalLiturgicalDay.current.season
+    val prefetchKind = when (page) {
+        AuthPage.WELCOME -> if (loginVitraisEnabled(BuildConfig.BUILD_TYPE)) PreAuthFormKind.LOGIN else null
+        AuthPage.PARTICIPATION -> if (registrationVitraisEnabled(BuildConfig.BUILD_TYPE)) PreAuthFormKind.REGISTRATION else null
+        else -> null
+    }
+    LaunchedEffect(artContext, authSeason, prefetchKind, artworkLoaders) {
+        if (prefetchKind != null) formArtCache.load(artContext, authSeason, prefetchKind, artworkLoaders.form(prefetchKind))
+    }
     val registering = page == AuthPage.REGISTER
     var displayName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
@@ -296,14 +308,14 @@ internal fun OnlineAuthScreen(
             RegistrationWelcomeScreen(
                 onCreate = { page = AuthPage.PARTICIPATION },
                 onLogin = { page = AuthPage.LOGIN },
-                visitCache = welcomeVisitCache
+                visitCache = welcomeVisitCache, loader = artworkLoaders.entrance
             )
             return
         }
         AuthPage.PARTICIPATION -> {
             RegistrationParticipationScreen(
                 onContinue = { page = AuthPage.REGISTER },
-                onBack = { goBack() }
+                onBack = { goBack() }, loader = artworkLoaders.entrance
             )
             return
         }
@@ -323,14 +335,13 @@ internal fun OnlineAuthScreen(
     val dark = isSystemInDarkTheme()
     val stainedRegistration = registering && registrationVitraisEnabled(BuildConfig.BUILD_TYPE)
     val stainedLogin = !registering && loginVitraisEnabled(BuildConfig.BUILD_TYPE)
-    val authSeason = LocalLiturgicalDay.current.season
     val artBitmap = when {
-        stainedRegistration -> rememberRegistrationVitralBitmap(authSeason)
-        stainedLogin -> rememberLoginVitralBitmap(authSeason)
+        stainedRegistration -> rememberRegistrationVitralBitmap(authSeason, artworkLoaders.registration, formArtCache)
+        stainedLogin -> rememberLoginVitralBitmap(authSeason, artworkLoaders.login, formArtCache)
         else -> null
     }
-    val glassForm = artBitmap != null
-    val darkForm = stainedRegistration || glassForm
+    val glassForm = stainedRegistration || stainedLogin
+    val darkForm = glassForm
     var formViewport by remember { mutableStateOf<PreAuthFormPlacement?>(null) }
     val formBackground = if (darkForm) Color(PreAuthGlassPolicy.GLASS_BASE) else if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
     val formHeading = if (darkForm) Color(PreAuthGlassPolicy.GLASS_TITLE) else if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
@@ -403,6 +414,7 @@ internal fun OnlineAuthScreen(
         PreAuthFormPanel(
             modifier = if (registering || stainedLogin) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier,
             bitmap = artBitmap, viewport = formViewport,
+            useStandardGlass = glassForm,
             fallbackColor = if (registering) {
                 if (stainedRegistration) formBackground.copy(alpha = .86f) else formBackground
             } else Paper,

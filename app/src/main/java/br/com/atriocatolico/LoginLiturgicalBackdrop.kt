@@ -37,21 +37,25 @@ internal fun loginVitralAssetName(season: Season): String = "login-vitrais/" + w
     else -> "login_vitral_tempo_comum.webp"
 }
 
-private fun decodeLoginVitral(context: Context, season: Season): ImageBitmap? = try {
+internal fun decodeLoginVitral(context: Context, season: Season): ImageBitmap? = try {
     context.assets.open(loginVitralAssetName(season)).use {
         BitmapFactory.decodeStream(it)?.asImageBitmap()
     }
-} catch (_: Exception) { null }
+} catch (_: Exception) { null } catch (_: OutOfMemoryError) { null }
 
 @Composable
 internal fun rememberLoginVitralBitmap(
     season: Season,
     loader: (Context, Season) -> ImageBitmap? = ::decodeLoginVitral,
+    cache: PreAuthFormArtCache? = null,
 ): ImageBitmap? {
     val context = LocalContext.current
-    return key(season, context, loader) {
-        val bitmap by produceState<ImageBitmap?>(null) {
-            val decoded = withContext(Dispatchers.IO) { loader(context, season) }
+    return key(season, context, loader, cache) {
+        val kind = PreAuthFormKind.LOGIN
+        val cached = cache?.get(context, season, kind, loader)
+        val bitmap by produceState<ImageBitmap?>(cached) {
+            val decoded = cached ?: if (cache != null) cache.load(context, season, kind, loader)
+                else withContext(Dispatchers.IO) { loader(context, season) }
             withContext(Dispatchers.Main.immediate) {
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 value = decoded
