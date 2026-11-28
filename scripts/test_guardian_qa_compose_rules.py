@@ -35,4 +35,14 @@ class Compose(unittest.TestCase):
         with self.assertRaises(ValueError):m.compose(legacy("/*"+"x"*m.LIMIT+"*/ match /posts/{id} { allow read: if true; }"),BOUNDARY)
     def test_missing_semicolon_denied(self):
         with self.assertRaises(ValueError):m.compose(legacy("match /posts/{id} { allow read: if true }"),BOUNDARY)
+    def test_reviewed_feed_group_keeps_list_query(self):
+        s,n=m.compose(legacy(m.FEED_GROUP+" match /posts/{id} { allow get: if true; }"),BOUNDARY)
+        self.assertEqual(n,2)
+        self.assertEqual(s.count(m.GUARD),1)
+        self.assertIn("allow list: if ("+m.IDENTITY_GUARD+")",s)
+    def test_unreviewed_group_no_exception(self):
+        for group in [m.FEED_GROUP.replace("allow list","allow read"),m.FEED_GROUP.replace("communityFeedOpen()","true"),m.FEED_GROUP.replace("feed_friendship_edges","qa_other_edges")]:
+            s,n=m.compose(legacy(group),BOUNDARY)
+            self.assertEqual(n,1)
+            self.assertEqual(s.count(m.GUARD),1)
 if __name__=="__main__":unittest.main()

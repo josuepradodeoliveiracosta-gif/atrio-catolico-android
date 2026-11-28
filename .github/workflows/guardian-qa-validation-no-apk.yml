@@ -73,6 +73,11 @@ jobs:
           python3 ../../scripts/guardian_qa_compose_rules.py --legacy fixtures/guardian-qa-legacy-composition.rules --boundary guardian-qa-boundary.rules --out "$dir/candidate.rules"
           export GUARDIAN_QA_BOUNDARY_RULES_PATH="$dir/candidate.rules"
           ./node_modules/.bin/firebase emulators:exec --config firebase.guardian-qa-boundary.json --only firestore --project demo-atrio-guardian-boundary "node guardian-qa-boundary.test.mjs && node guardian-qa-composition.test.mjs"
+      - name: Regressao das regras completas do repositorio
+        run: |
+          dir="$(mktemp -d)"
+          cp firestore.rules "$dir/baseline.rules"
+          python3 scripts/guardian_qa_rules_regression.py --legacy "$dir/baseline.rules" --out "$dir/candidate.rules"
       - name: Registrar resultado
         run: |
           printf '%s\n' '### Guardian QA: testes concluidos' 'Worker, laboratorio, Rules, E2E e barreira transacional aprovados.' 'Sem APK, deploy, artefatos ou acesso Firebase remoto.' >> "$GITHUB_STEP_SUMMARY"
