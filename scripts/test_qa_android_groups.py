@@ -88,6 +88,15 @@ class AndroidGroupTests(unittest.TestCase):
         self.assertIn("atrio-welcome-preview", block)
         self.assertIn('exit "$qa_failed"', block)
 
+    def test_login_focal_keeps_offline_and_captures(self):
+        source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
+        start = 'if [[ "${ATRIO_QA_SUITE:-}" == LoginLiturgicalBackdropUiTest ]]; then'
+        block = source.split(start, 1)[1].split("\nfi", 1)[0]
+        self.assertIn("run_suite LoginLiturgicalBackdropUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true", block)
+        self.assertIn("atrio-login-preview", block)
+        self.assertIn("atrio-registration-preview", block)
+        self.assertIn('exit "$qa_failed"', block)
+
     def test_legacy_and_captures(self):
         source = (ROOT / "scripts/run-qa-android-emulator.sh").read_text()
         self.assertIn('qa_group="${ATRIO_QA_SUITE_GROUP:-all}"', source)

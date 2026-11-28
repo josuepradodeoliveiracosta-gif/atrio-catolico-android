@@ -454,6 +454,20 @@ if [[ "${ATRIO_QA_SUITE:-}" == WelcomeVitralUiTest ]]; then
   fi
   exit "$qa_failed"
 fi
+if [[ "${ATRIO_QA_SUITE:-}" == LoginLiturgicalBackdropUiTest ]]; then
+  [[ "$qa_apk" == qaGeral && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
+    echo "Login e cadastro exigem QA Geral local" >&2; exit 2
+  }
+  run_suite LoginLiturgicalBackdropUiTest -Pandroid.testInstrumentationRunnerArguments.atrioOfflineVitralQa=true
+  mkdir -p qa-android-suite-results/login-preview qa-android-suite-results/registration-preview
+  if ! adb pull /data/local/tmp/atrio-login-preview/. qa-android-suite-results/login-preview/; then
+    qa_failed=1
+  fi
+  if ! adb pull /data/local/tmp/atrio-registration-preview/. qa-android-suite-results/registration-preview/; then
+    qa_failed=1
+  fi
+  exit "$qa_failed"
+fi
 if [[ -n "${ATRIO_QA_SUITE:-}" ]]; then
   echo "Suite seletiva desconhecida; negando execucao" >&2
   exit 2

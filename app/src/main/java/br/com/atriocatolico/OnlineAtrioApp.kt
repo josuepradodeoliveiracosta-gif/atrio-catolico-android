@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -321,12 +322,22 @@ internal fun OnlineAuthScreen(
 
     val dark = isSystemInDarkTheme()
     val stainedRegistration = registering && registrationVitraisEnabled(BuildConfig.BUILD_TYPE)
-    val formBackground = if (stainedRegistration) Color(0xFF211922) else if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
-    val formHeading = if (stainedRegistration) Color(0xFFFFE4AA) else if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
-    val formText = if (stainedRegistration) Color(0xFFFFF5E6) else if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
-    val formOutline = if (stainedRegistration) Color(0xFFD9B97B) else if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
-    val formError = if (stainedRegistration) Color(0xFFFFB4AB) else MaterialTheme.colorScheme.error
-    val fieldColors = if (stainedRegistration) OutlinedTextFieldDefaults.colors(
+    val stainedLogin = !registering && loginVitraisEnabled(BuildConfig.BUILD_TYPE)
+    val authSeason = LocalLiturgicalDay.current.season
+    val artBitmap = when {
+        stainedRegistration -> rememberRegistrationVitralBitmap(authSeason)
+        stainedLogin -> rememberLoginVitralBitmap(authSeason)
+        else -> null
+    }
+    val glassForm = artBitmap != null
+    val darkForm = stainedRegistration || glassForm
+    var formViewport by remember { mutableStateOf<PreAuthFormPlacement?>(null) }
+    val formBackground = if (darkForm) Color(0xFF211922) else if (dark) Color(0xFF20171A) else Color(0xFFFAF5ED)
+    val formHeading = if (darkForm) Color(0xFFFFE4AA) else if (dark) Color(0xFFFFB2C6) else Color(0xFF701333)
+    val formText = if (darkForm) Color(0xFFFFF5E6) else if (dark) Color(0xFFF8E8ED) else Color(0xFF31272A)
+    val formOutline = if (darkForm) Color(0xFFD9B97B) else if (dark) Color(0xFFE8BA62) else Color(0xFFA57926)
+    val formError = if (darkForm) Color(0xFFFFB4AB) else MaterialTheme.colorScheme.error
+    val fieldColors = if (darkForm) OutlinedTextFieldDefaults.colors(
         focusedTextColor = formText,
         unfocusedTextColor = formText,
         focusedLabelColor = formHeading,
@@ -360,11 +371,10 @@ internal fun OnlineAuthScreen(
         unfocusedSupportingTextColor = formText
     ) else OutlinedTextFieldDefaults.colors()
 
-    val stainedLogin = !registering && loginVitraisEnabled(BuildConfig.BUILD_TYPE)
     val loginHeadingColor = if (stainedLogin) Color.White else MaterialTheme.colorScheme.onPrimary
-    Box(Modifier.fillMaxSize()) {
-        if (stainedLogin) LoginLiturgicalBackdrop()
-        if (stainedRegistration) RegistrationLiturgicalBackdrop()
+    Box(Modifier.fillMaxSize().onGloballyPositioned { formViewport = PreAuthFormPlacement.from(it) }) {
+        if (stainedLogin) PreAuthFormArtwork(artBitmap, "login", authSeason.name)
+        if (stainedRegistration) PreAuthFormArtwork(artBitmap, "registration", authSeason.name)
     Column(
         Modifier.fillMaxSize().background(if (stainedRegistration || stainedLogin) Color.Transparent else if (registering) formBackground else Wine)
             .statusBarsPadding().navigationBarsPadding().imePadding()
@@ -390,15 +400,14 @@ internal fun OnlineAuthScreen(
                 color = loginHeadingColor, fontSize = 15.sp)
             Spacer(Modifier.height(26.dp))
         }
-        Card(
+        PreAuthFormPanel(
             modifier = if (registering || stainedLogin) Modifier.widthIn(max = 440.dp).fillMaxWidth() else Modifier,
-            colors = if (registering) {
-                CardDefaults.cardColors(
-                    containerColor = if (stainedRegistration) formBackground.copy(alpha = .86f) else formBackground,
-                    contentColor = formText
-                )
-            } else CardDefaults.cardColors(containerColor = Paper),
-            shape = RoundedCornerShape(20.dp)
+            bitmap = artBitmap, viewport = formViewport,
+            fallbackColor = if (registering) {
+                if (stainedRegistration) formBackground.copy(alpha = .86f) else formBackground
+            } else Paper,
+            fallbackInk = if (registering) formText else CardDefaults.cardColors(containerColor = Paper).contentColor,
+            glassInk = formText, glassBorder = formOutline,
         ) {
             Column(
                 Modifier.padding(if (stainedRegistration) 16.dp else if (registering) 0.dp else 20.dp),
@@ -407,7 +416,7 @@ internal fun OnlineAuthScreen(
                 Text(
                     if (registering) "Criar conta" else "Entrar na comunidade",
                     modifier = if (registering) Modifier.fillMaxWidth().padding(top = 12.dp) else Modifier,
-                    color = if (registering) formHeading else Color.Unspecified,
+                    color = if (registering || glassForm) formHeading else Color.Unspecified,
                     textAlign = if (registering) TextAlign.Center else TextAlign.Unspecified,
                     fontSize = if (registering) 28.sp else 22.sp,
                     fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold
@@ -521,12 +530,12 @@ internal fun OnlineAuthScreen(
                 }
                 if (error.isNotBlank()) {
                     Text(error, modifier = Modifier.testTag("atrio-auth-error"),
-                        color = if (stainedRegistration) formError else MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
+                        color = if (darkForm) formError else MaterialTheme.colorScheme.error, fontSize = AtrioType.secondary)
                 }
-                if (resetInfo.isNotBlank()) Text(resetInfo, color = Wine, fontSize = AtrioType.secondary)
+                if (resetInfo.isNotBlank()) Text(resetInfo, color = if (glassForm) formText else Wine, fontSize = AtrioType.secondary)
                 Button(
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("atrio-auth-submit"),
-                    colors = if (stainedRegistration) ButtonDefaults.buttonColors(
+                    colors = if (darkForm) ButtonDefaults.buttonColors(
                         containerColor = Color(0xFFFFEAC5), contentColor = Color(0xFF211922),
                         disabledContainerColor = Color(0xFF50434B), disabledContentColor = Color(0xFFE5D9D2)
                     ) else if (registering) ButtonDefaults.buttonColors(
@@ -615,7 +624,7 @@ internal fun OnlineAuthScreen(
                             else -> AuthPage.PARTICIPATION
                         }
                     }, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("atrio-auth-toggle"),
-                        colors = if (stainedRegistration) ButtonDefaults.textButtonColors(contentColor = formHeading)
+                        colors = if (darkForm) ButtonDefaults.textButtonColors(contentColor = formHeading)
                             else ButtonDefaults.textButtonColors()) {
                         Text(if (registering) "Já tenho conta" else "Ainda não tenho conta")
                     }
@@ -632,12 +641,14 @@ internal fun OnlineAuthScreen(
                                 else "Não foi possível solicitar a recuperação agora."
                             }
                         }
-                    }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    }, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                        colors = if (glassForm) ButtonDefaults.textButtonColors(contentColor = formHeading)
+                            else ButtonDefaults.textButtonColors()) {
                         Text("Esqueci minha senha")
                     }
                 }
                 if (!registering) Text("Cadastro por e-mail · Discussões compartilhadas · Respeito em primeiro lugar",
-                    fontSize = AtrioType.secondary, color = Muted, lineHeight = AtrioType.secondaryLine, textAlign = TextAlign.Center,
+                    fontSize = AtrioType.secondary, color = if (glassForm) formText else Muted, lineHeight = AtrioType.secondaryLine, textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth())
             }
         }

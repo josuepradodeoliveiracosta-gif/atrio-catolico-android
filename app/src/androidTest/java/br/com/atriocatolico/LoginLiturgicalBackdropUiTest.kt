@@ -135,6 +135,7 @@ class LoginLiturgicalBackdropUiTest {
                 compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size == 1
             }
             compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+            compose.onNodeWithTag("atrio-preauth-form-glass", useUnmergedTree = true).assertExists()
             compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertTextContains(email)
             previous?.let {
                 compose.onNodeWithTag("atrio-login-vitral-${it.name}", useUnmergedTree = true)
@@ -186,6 +187,7 @@ class LoginLiturgicalBackdropUiTest {
                     compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size == 1
                 }
                 compose.onNodeWithTag(tag, useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithTag("atrio-preauth-form-glass", useUnmergedTree = true).assertExists()
                 assertTrue("Rede deve permanecer desconectada", network.activeNetwork == null)
             }
             compose.onNodeWithTag("atrio-auth-email").performScrollTo().assertIsDisplayed()

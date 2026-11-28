@@ -3,6 +3,18 @@ package br.com.atriocatolico
 import android.os.Build
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Surface
@@ -94,4 +106,63 @@ internal fun PreAuthGlassPanel(
             content()
         }
     }
+}
+
+internal val PreAuthFormBaseColor = Color(0xFF211922)
+internal val PreAuthFormScrim = Color.Black.copy(alpha = .65f)
+
+@Composable
+internal fun PreAuthFormArtwork(bitmap: ImageBitmap?, kind: String, season: String) {
+    Box(Modifier.fillMaxSize().background(PreAuthFormBaseColor)
+        .testTag("atrio-$kind-backdrop")) {
+        bitmap?.let {
+            Image(it, null, Modifier.fillMaxSize().testTag("atrio-$kind-vitral-$season"),
+                alignment = Alignment.TopCenter, contentScale = ContentScale.Crop)
+        }
+        Box(Modifier.fillMaxSize().background(PreAuthFormScrim))
+    }
+}
+
+/** Position in the same Compose root; update when scrolling or IME changes layout.
+ * Keep no LayoutCoordinates reference after placement. */
+internal data class PreAuthFormPlacement(val origin: IntOffset, val size: IntSize) {
+    companion object {
+        fun from(coordinates: LayoutCoordinates): PreAuthFormPlacement {
+            val p = coordinates.positionInRoot()
+            return PreAuthFormPlacement(IntOffset(p.x.roundToInt(),p.y.roundToInt()), coordinates.size)
+        }
+    }
+}
+
+@Composable
+internal fun PreAuthFormPanel(
+    modifier: Modifier,
+    bitmap: ImageBitmap?,
+    viewport: PreAuthFormPlacement?,
+    fallbackColor: Color,
+    fallbackInk: Color,
+    glassInk: Color,
+    glassBorder: Color,
+    content: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(20.dp)
+    if (bitmap == null) {
+        Card(modifier = modifier, colors = CardDefaults.cardColors(
+            containerColor = fallbackColor, contentColor = fallbackInk), shape = shape) { content() }
+        return
+    }
+    var placement by remember { mutableStateOf<PreAuthFormPlacement?>(null) }
+    val backdrop = if (viewport != null) placement?.let {
+        PreAuthGlassBackdrop(bitmap, viewport.size, it.origin - viewport.origin,
+            PreAuthFormBaseColor, ContentScale.Crop, PreAuthFormScrim)
+    } else null
+    PreAuthGlassPanel(
+        modifier = modifier.testTag("atrio-preauth-form-glass")
+            .onGloballyPositioned { placement = PreAuthFormPlacement.from(it) },
+        backdrop = backdrop,
+        tint = Color(PreAuthGlassPolicy.darkSurface(0xFF211922L)),
+        contentColor = glassInk, shape = shape,
+        border = BorderStroke(1.dp, glassBorder.copy(alpha = .55f)),
+        content = content,
+    )
 }

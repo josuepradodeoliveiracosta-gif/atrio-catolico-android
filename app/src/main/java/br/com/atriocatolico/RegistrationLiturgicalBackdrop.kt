@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import br.com.atriocatolico.LiturgicalCalendarBR.Season
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 // Somente QA Geral; não ativar no release antes da homologação e das artes finais.
@@ -43,23 +44,28 @@ private fun decodeRegistrationVitral(context: Context, season: Season): ImageBit
 } catch (_: Exception) { null }
 
 @Composable
-internal fun RegistrationLiturgicalBackdrop(
-    season: Season = LocalLiturgicalDay.current.season,
-    loader: (Context, Season) -> ImageBitmap? = ::decodeRegistrationVitral
-) {
+internal fun rememberRegistrationVitralBitmap(
+    season: Season,
+    loader: (Context, Season) -> ImageBitmap? = ::decodeRegistrationVitral,
+): ImageBitmap? {
     val context = LocalContext.current
-    Box(Modifier.fillMaxSize().background(Color(0xFF211922)).testTag("atrio-registration-backdrop")) {
-        key(season, context, loader) {
-            val bitmap by produceState<ImageBitmap?>(null) {
-                value = withContext(Dispatchers.IO) { loader(context, season) }
-            }
-            bitmap?.let {
-                Image(bitmap = it, contentDescription = null,
-                    modifier = Modifier.fillMaxSize().testTag("atrio-registration-vitral-${season.name}"),
-                    alignment = Alignment.TopCenter, contentScale = ContentScale.Crop)
+    return key(season, context, loader) {
+        val bitmap by produceState<ImageBitmap?>(null) {
+            val decoded = withContext(Dispatchers.IO) { loader(context, season) }
+            withContext(Dispatchers.Main.immediate) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                value = decoded
             }
         }
-        // Scrim conservador para texto claro sobre qualquer pixel do vitral.
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .65f)))
+        bitmap
     }
+}
+
+@Composable
+internal fun RegistrationLiturgicalBackdrop(
+    season: Season = LocalLiturgicalDay.current.season,
+    loader: (Context, Season) -> ImageBitmap? = ::decodeRegistrationVitral,
+) {
+    val bitmap = rememberRegistrationVitralBitmap(season, loader)
+    PreAuthFormArtwork(bitmap, "registration", season.name)
 }
