@@ -449,6 +449,37 @@ if [[ "${ATRIO_QA_SUITE:-}" == PreAuthStandardGlass ]]; then
   done
   exit "$qa_failed"
 fi
+# Recover only navigation and the screenshots invalidated by SystemUI ANR.
+if [[ "${ATRIO_QA_SUITE:-}" == PreAuthEntranceVisualRetry ]]; then
+  [[ "$qa_apk" == qaGeral && "$qa_group" == all && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || exit 2
+  run_entrance_methods() {
+    local suite="$1" methods="$2"
+    if ! gradle "$test_task" "-Pandroid.testInstrumentationRunnerArguments.class=$methods" --daemon --stacktrace; then
+      qa_failed=1
+    fi
+    local results="app/build/outputs/androidTest-results/connected/$qa_apk"
+    mkdir -p "qa-android-suite-results/$suite"
+    if [[ -d "$results" ]]; then
+      cp -a "$results/." "qa-android-suite-results/$suite/"
+    else
+      qa_failed=1
+    fi
+  }
+  run_entrance_methods WelcomeVitralUiTest 'br.com.atriocatolico.WelcomeVitralUiTest#realWelcomeNavigatesToLoginAndRegistrationInAllSixSeasons,br.com.atriocatolico.WelcomeVitralUiTest#darkModeKeepsSixArtsAndBothActionsAccessible'
+  run_entrance_methods ParticipationVitralUiTest 'br.com.atriocatolico.ParticipationVitralUiTest#realNavigationAllSeasonsAndChoices,br.com.atriocatolico.ParticipationVitralUiTest#realAssetsKeepAllChoicesReachableInBothModes'
+  for kind in welcome participation; do
+    mkdir -p "qa-android-suite-results/$kind-preview"
+    if ! adb pull "/data/local/tmp/atrio-$kind-preview/." "qa-android-suite-results/$kind-preview/"; then
+      qa_failed=1
+    fi
+    expected=12
+    [[ "$kind" != welcome ]] || expected=18
+    if [[ "$(find "qa-android-suite-results/$kind-preview" -maxdepth 1 -name '*.png' | wc -l)" -ne "$expected" ]]; then
+      qa_failed=1
+    fi
+  done
+  exit "$qa_failed"
+fi
 if [[ "${ATRIO_QA_SUITE:-}" == PreAuthEntranceGlass ]]; then
   [[ "$qa_apk" == qaGeral && "$qa_group" == all && "${ATRIO_QA_GERAL_REMOTE_BUILD:-}" != 1 ]] || {
     echo "Vidro de entrada exige QA Geral local e sem grupos" >&2; exit 2
