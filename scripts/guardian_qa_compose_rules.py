@@ -18,6 +18,11 @@ METHODS={"read","write","get","list","create","update","delete"}
 MARKER="GUARDIAN_QA_COMPOSED_V1"
 GUARD="(request.auth == null || (!(request.auth.uid in ['fixture_triage','fixture_activation','fixture_owner']) && !('guardianQaRole' in request.auth.token))) && !request.path[3].matches('qa_guardian_.*')"
 LIMIT=256*1024
+IDENTITY_GUARD=GUARD.split(" && !request.path",1)[0]
+# Only the reviewed existing read-only feed group may omit the top-level
+# path predicate: the Guardian boundary stores flat documents under distinct
+# collection IDs. No legacy client may create reserved descendants.
+FEED_GROUP="match /{path=**}/feed_friendship_edges/{edgeId} { allow list: if communityFeedOpen() && (me(resource.data.senderUid) || me(resource.data.recipientUid)); }"
 
 def tokens(source):
     out=[]
@@ -66,10 +71,20 @@ def compose(legacy,boundary):
     fragment=boundary[bt[9][1]:bt[-1][1]]
     edits=[]
     count=0
+    group_words=[x[0] for x in tokens(FEED_GROUP)]
+    group_allows=set()
+    for i in range(len(words)-len(group_words)+1):
+        if words[i:i+len(group_words)]==group_words:
+            group_allows.add(i+group_words.index("allow"))
+    if len(group_allows)>1:
+        raise ValueError("duplicate_feed_group")
+    group_count=0
     for i,w in enumerate(words):
         if w!="allow":
             continue
         # Reject ambiguous uses rather than silently skip a legacy allow.
+        guard=IDENTITY_GUARD if i in group_allows else GUARD
+        group_count+=int(i in group_allows)
         j=i+1
         if j>=len(words) or words[j] not in METHODS:
             raise ValueError("unsupported_allow_token")
@@ -80,7 +95,7 @@ def compose(legacy,boundary):
                 raise ValueError("unsupported_allow_methods")
             j+=1
         if words[j]==";":
-            edits.append((ts[j][1],ts[j][1],": if "+GUARD))
+            edits.append((ts[j][1],ts[j][1],": if "+guard))
         elif words[j:j+2]==[":","if"]:
             start=j+2
             end=start
@@ -88,7 +103,7 @@ def compose(legacy,boundary):
                 end+=1
             if end==start or end>=len(words) or any(x in {"allow","match","function","service"} for x in words[start:end]):
                 raise ValueError("unsupported_allow_expression")
-            edits.append((ts[j+1][2],ts[j+1][2]," ("+GUARD+") && ("))
+            edits.append((ts[j+1][2],ts[j+1][2]," ("+guard+") && ("))
             edits.append((ts[end][1],ts[end][1],")"))
         else:
             raise ValueError("unsupported_allow")
@@ -102,7 +117,7 @@ def compose(legacy,boundary):
     if len(result.encode("utf-8"))>LIMIT:
         raise ValueError("rules_size_limit")
     # Verify every recorded guard survives assembly, no guard omitted.
-    if result.count(GUARD)!=count:
+    if result.count(GUARD)!=count-group_count or result.count(IDENTITY_GUARD)!=count:
         raise ValueError("guard_count_mismatch")
     return result,count
 
